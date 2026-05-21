@@ -1,0 +1,1 @@
+export const FINANCE_DATA_CHANGED = "finance:data-changed";
