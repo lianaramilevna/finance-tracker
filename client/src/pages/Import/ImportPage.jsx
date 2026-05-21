@@ -33,7 +33,7 @@ function ImportPage() {
 
     try {
       setLoadingAccounts(true);
-      const data = await getAccounts(userId);
+      const data = await getAccounts();
       const activeAccounts = Array.isArray(data) ? data : [];
       setAccounts(activeAccounts);
 
@@ -81,7 +81,6 @@ function ImportPage() {
 
       const data = await previewImport({
         file,
-        user_id: userId,
         account_id: Number(selectedAccountId),
       });
 
@@ -123,7 +122,6 @@ function ImportPage() {
       setMessage("");
 
       const result = await commitImport({
-        user_id: userId,
         account_id: Number(selectedAccountId),
         rows: rowsToImport,
       });

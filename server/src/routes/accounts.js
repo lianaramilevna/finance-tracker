@@ -3,16 +3,44 @@ const pool = require("../db");
 
 const router = express.Router();
 
-/**
- * GET /api/accounts?user_id=1
- * Возвращает только активные счета
- */
+async function getOwnedAccount(id, userId) {
+  const result = await pool.query(
+    `
+    SELECT id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
+    FROM accounts
+    WHERE id = $1
+    LIMIT 1
+    `,
+    [id]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  if (Number(result.rows[0].user_id) !== userId) {
+    return "forbidden";
+  }
+
+  return result.rows[0];
+}
+
+function parseArchivedFilter(value) {
+  const raw = String(value || "active").trim().toLowerCase();
+  if (raw === "archived") return "archived";
+  if (raw === "all") return "all";
+  return "active";
+}
+
 router.get("/", async (req, res) => {
   try {
-    const { user_id } = req.query;
+    const filter = parseArchivedFilter(req.query.archived);
 
-    if (!user_id) {
-      return res.status(400).json({ message: "user_id is required" });
+    let whereClause = "user_id = $1";
+    if (filter === "active") {
+      whereClause += " AND COALESCE(is_archived, false) = false";
+    } else if (filter === "archived") {
+      whereClause += " AND COALESCE(is_archived, false) = true";
     }
 
     const result = await pool.query(
@@ -28,11 +56,10 @@ router.get("/", async (req, res) => {
         closed_at,
         created_at
       FROM accounts
-      WHERE user_id = $1
-        AND COALESCE(is_archived, false) = false
+      WHERE ${whereClause}
       ORDER BY created_at DESC, id DESC
       `,
-      [user_id]
+      [req.userId]
     );
 
     res.json(result.rows);
@@ -42,20 +69,11 @@ router.get("/", async (req, res) => {
   }
 });
 
-/**
- * POST /api/accounts
- */
 router.post("/", async (req, res) => {
   try {
-    const {
-      user_id,
-      name,
-      type,
-      currency = "RUB",
-      balance = 0,
-    } = req.body;
+    const { name, type, currency = "RUB", balance = 0 } = req.body;
 
-    if (!user_id || !name || !type) {
+    if (!name || !type) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
@@ -70,7 +88,7 @@ router.post("/", async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, false)
       RETURNING id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
       `,
-      [user_id, name.trim(), type, currency, balance]
+      [req.userId, name.trim(), type, currency, balance]
     );
 
     res.status(201).json(created.rows[0]);
@@ -80,14 +98,18 @@ router.post("/", async (req, res) => {
   }
 });
 
-/**
- * PATCH /api/accounts/:id
- * Редактирование счета
- */
 router.patch("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { name, type, currency, balance } = req.body;
+
+    const owned = await getOwnedAccount(id, req.userId);
+    if (owned === "forbidden") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    if (!owned) {
+      return res.status(404).json({ message: "Account not found" });
+    }
 
     const allowedTypes = ["card", "cash", "savings", "investment"];
     if (type && !allowedTypes.includes(type)) {
@@ -103,6 +125,7 @@ router.patch("/:id", async (req, res) => {
         currency = COALESCE($3, currency),
         balance = COALESCE($4, balance)
       WHERE id = $5
+        AND user_id = $6
       RETURNING id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
       `,
       [
@@ -111,12 +134,9 @@ router.patch("/:id", async (req, res) => {
         currency ?? null,
         balance ?? null,
         id,
+        req.userId,
       ]
     );
-
-    if (updated.rows.length === 0) {
-      return res.status(404).json({ message: "Account not found" });
-    }
 
     res.json(updated.rows[0]);
   } catch (error) {
@@ -125,10 +145,6 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-/**
- * PATCH /api/accounts/:id/close
- * Закрыть счет (архивировать)
- */
 router.patch("/:id/close", async (req, res) => {
   try {
     const { id } = req.params;
@@ -139,9 +155,11 @@ router.patch("/:id/close", async (req, res) => {
       SET is_archived = true,
           closed_at = NOW()
       WHERE id = $1
+        AND user_id = $2
+        AND COALESCE(is_archived, false) = false
       RETURNING id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
       `,
-      [id]
+      [id, req.userId]
     );
 
     if (closed.rows.length === 0) {
@@ -155,11 +173,34 @@ router.patch("/:id/close", async (req, res) => {
   }
 });
 
+router.patch("/:id/restore", async (req, res) => {
+  try {
+    const { id } = req.params;
 
-/**
- * DELETE /api/accounts/:id
- * Лучше не использовать, но можно оставить как реальное удаление
- */
+    const restored = await pool.query(
+      `
+      UPDATE accounts
+      SET is_archived = false,
+          closed_at = NULL
+      WHERE id = $1
+        AND user_id = $2
+        AND COALESCE(is_archived, false) = true
+      RETURNING id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
+      `,
+      [id, req.userId]
+    );
+
+    if (restored.rows.length === 0) {
+      return res.status(404).json({ message: "Archived account not found" });
+    }
+
+    res.json(restored.rows[0]);
+  } catch (error) {
+    console.error("PATCH /api/accounts/:id/restore error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -168,9 +209,10 @@ router.delete("/:id", async (req, res) => {
       `
       DELETE FROM accounts
       WHERE id = $1
+        AND user_id = $2
       RETURNING id
       `,
-      [id]
+      [id, req.userId]
     );
 
     if (deleted.rows.length === 0) {

@@ -78,10 +78,20 @@
   color: rgba(255, 255, 255, 0.9);
 }
 
-/* Оставлены для совместимости, но цвет теперь одинаковый */
-.delta-positive,
-.delta-negative {
-  color: rgba(255, 255, 255, 0.9) !important;
+.stat-income .delta-positive {
+  color: #ecfdf5 !important;
+}
+
+.stat-income .delta-negative {
+  color: #fef9c3 !important;
+}
+
+.stat-expense .delta-positive {
+  color: #ecfdf5 !important;
+}
+
+.stat-expense .delta-negative {
+  color: #fee2e2 !important;
 }
 
 .stat-balance {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createCategory, getCategories } from "../../shared/api/categories";
 import { getAccounts } from "../../shared/api/accounts";
 import { getCurrentUser } from "../../shared/lib/session";
+import { toast } from "../../shared/ui/ToastProvider";
 
 function AddTransaction({ onAdd, onCancel }) {
   const user = getCurrentUser();
@@ -35,8 +36,8 @@ function AddTransaction({ onAdd, onCancel }) {
     const loadData = async () => {
       try {
         const [accountsData, categoriesData] = await Promise.all([
-          userId ? getAccounts(userId) : Promise.resolve([]),
-          getCategories(form.type, userId),
+          userId ? getAccounts() : Promise.resolve([]),
+          getCategories(form.type),
         ]);
 
         if (!mounted) return;
@@ -120,7 +121,7 @@ function AddTransaction({ onAdd, onCancel }) {
       setShowNewCategoryInput(false);
     } catch (error) {
       console.error(error);
-      alert(error.message || "Не удалось добавить категорию");
+      toast(error.message || "Не удалось добавить категорию");
     }
   };
 

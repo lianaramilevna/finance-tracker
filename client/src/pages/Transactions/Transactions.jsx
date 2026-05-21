@@ -10,6 +10,8 @@ import { getCategories } from "../../shared/api/categories";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import { getCurrentUser } from "../../shared/lib/session";
 import { formatDate, formatMoney } from "../../shared/lib/format";
+import { isTransferTransaction } from "../../shared/lib/calc";
+import { toast } from "../../shared/ui/ToastProvider";
 import { FiEdit2, FiTrash2, FiX } from "react-icons/fi";
 import "./transactions.css";
 
@@ -51,7 +53,7 @@ function Transactions() {
 
     try {
       setLoading(true);
-      const data = await getTransactions(userId);
+      const data = await getTransactions();
       setTransactions(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error(error);
@@ -68,7 +70,7 @@ function Transactions() {
     }
 
     try {
-      const data = await getAccounts(userId);
+      const data = await getAccounts();
       setAccounts(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error(error);
@@ -92,7 +94,7 @@ function Transactions() {
     const loadEditCategories = async () => {
       try {
         setEditOptionsLoading(true);
-        const data = await getCategories(editForm.type, userId);
+        const data = await getCategories(editForm.type);
         if (!active) return;
         setEditCategories(Array.isArray(data) ? data : []);
       } catch (error) {
@@ -200,7 +202,7 @@ function Transactions() {
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
     } catch (error) {
       console.error(error);
-      alert("Не удалось удалить транзакцию");
+      toast("Не удалось удалить транзакцию");
     }
   };
 
@@ -248,7 +250,7 @@ function Transactions() {
 
     if (!editingId) return;
     if (!editForm.accountId || !editForm.categoryId || !editForm.amount || !editForm.date) {
-      alert("Заполни все обязательные поля");
+      toast("Заполни все обязательные поля");
       return;
     }
 
@@ -269,7 +271,7 @@ function Transactions() {
       closeEdit();
     } catch (error) {
       console.error(error);
-      alert(error.message || "Не удалось сохранить изменения");
+      toast(error.message || "Не удалось сохранить изменения");
     } finally {
       setSavingEdit(false);
     }
@@ -400,7 +402,11 @@ function Transactions() {
                 <span>{t.account || "—"}</span>
                 <span className="row-category">{t.category || "Без категории"}</span>
                 <span className={t.type === "income" ? "type income" : "type expense"}>
-                  {t.type === "income" ? "Доход" : "Расход"}
+                  {isTransferTransaction(t)
+                    ? "Перевод"
+                    : t.type === "income"
+                    ? "Доход"
+                    : "Расход"}
                 </span>
                 <span className={t.type === "income" ? "amount income" : "amount expense"}>
                   {t.type === "income" ? "+" : "-"}

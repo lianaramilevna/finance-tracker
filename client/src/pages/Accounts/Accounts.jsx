@@ -3,12 +3,15 @@ import {
   closeAccount,
   createAccount,
   getAccounts,
+  restoreAccount,
   updateAccount,
 } from "../../shared/api/accounts";
+import { createTransfer } from "../../shared/api/transfers";
 import { getCurrentUser } from "../../shared/lib/session";
 import { formatMoney } from "../../shared/lib/format";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
-import { FiEdit2, FiX } from "react-icons/fi"; // ← импорт иконок
+import { toast } from "../../shared/ui/ToastProvider";
+import { FiEdit2, FiX } from "react-icons/fi";
 import "./accounts.css";
 
 const ACCOUNT_TYPES = [
@@ -23,14 +26,25 @@ function Accounts() {
   const userId = user?.id || null;
   const currency = user?.currency || "RUB";
 
+  const [activeTab, setActiveTab] = useState("active");
   const [accounts, setAccounts] = useState([]);
+  const [archivedAccounts, setArchivedAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [transferSaving, setTransferSaving] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
     type: "cash",
     balance: "",
+  });
+
+  const [transferForm, setTransferForm] = useState({
+    from_account_id: "",
+    to_account_id: "",
+    amount: "",
+    date: new Date().toISOString().slice(0, 10),
+    note: "",
   });
 
   const [editOpen, setEditOpen] = useState(false);
@@ -42,29 +56,45 @@ function Accounts() {
     balance: "",
   });
 
+  const loadActiveAccounts = useCallback(async () => {
+    if (!userId) {
+      setAccounts([]);
+      return;
+    }
+
+    const data = await getAccounts({ archived: "active" });
+    setAccounts(Array.isArray(data) ? data : []);
+  }, [userId]);
+
+  const loadArchivedAccounts = useCallback(async () => {
+    if (!userId) {
+      setArchivedAccounts([]);
+      return;
+    }
+
+    const data = await getAccounts({ archived: "archived" });
+    setArchivedAccounts(Array.isArray(data) ? data : []);
+  }, [userId]);
+
   const loadAccounts = useCallback(async () => {
     if (!userId) {
       setAccounts([]);
+      setArchivedAccounts([]);
       setLoading(false);
       return;
     }
 
     try {
       setLoading(true);
-      const data = await getAccounts(userId);
-
-      const activeAccounts = Array.isArray(data)
-        ? data.filter((acc) => !acc.is_archived)
-        : [];
-
-      setAccounts(activeAccounts);
+      await Promise.all([loadActiveAccounts(), loadArchivedAccounts()]);
     } catch (error) {
       console.error(error);
       setAccounts([]);
+      setArchivedAccounts([]);
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, loadActiveAccounts, loadArchivedAccounts]);
 
   useEffect(() => {
     loadAccounts();
@@ -77,6 +107,8 @@ function Accounts() {
     return () => window.removeEventListener(FINANCE_DATA_CHANGED, handleDataChanged);
   }, [loadAccounts]);
 
+  const displayedAccounts = activeTab === "active" ? accounts : archivedAccounts;
+
   const totalBalance = useMemo(() => {
     return accounts.reduce((sum, acc) => sum + Number(acc.balance || 0), 0);
   }, [accounts]);
@@ -88,6 +120,11 @@ function Accounts() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleTransferChange = (e) => {
+    const { name, value } = e.target;
+    setTransferForm((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleAdd = async (e) => {
@@ -114,25 +151,76 @@ function Accounts() {
 
       await loadAccounts();
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      toast("Счёт добавлен", "success");
     } catch (error) {
       console.error(error);
-      alert(error.message || "Не удалось добавить счёт");
+      toast(error.message || "Не удалось добавить счёт");
     } finally {
       setSaving(false);
     }
   };
 
+  const handleTransfer = async (e) => {
+    e.preventDefault();
+
+    if (!transferForm.from_account_id || !transferForm.to_account_id) {
+      toast("Выберите счета для перевода");
+      return;
+    }
+
+    try {
+      setTransferSaving(true);
+
+      await createTransfer({
+        from_account_id: Number(transferForm.from_account_id),
+        to_account_id: Number(transferForm.to_account_id),
+        amount: Number(transferForm.amount),
+        date: transferForm.date,
+        note: transferForm.note.trim() || null,
+      });
+
+      setTransferForm((prev) => ({
+        ...prev,
+        amount: "",
+        note: "",
+      }));
+
+      await loadAccounts();
+      window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      toast("Перевод выполнен", "success");
+    } catch (error) {
+      console.error(error);
+      toast(error.message || "Не удалось выполнить перевод");
+    } finally {
+      setTransferSaving(false);
+    }
+  };
+
   const handleClose = async (id) => {
-    const confirmClose = window.confirm("Закрыть счёт? Он исчезнет из списка активных.");
+    const confirmClose = window.confirm("Закрыть счёт? Он переместится в архив.");
     if (!confirmClose) return;
 
     try {
       await closeAccount(id);
       await loadAccounts();
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      toast("Счёт архивирован", "success");
     } catch (error) {
       console.error(error);
-      alert(error.message || "Не удалось закрыть счёт");
+      toast(error.message || "Не удалось закрыть счёт");
+    }
+  };
+
+  const handleRestore = async (id) => {
+    try {
+      await restoreAccount(id);
+      await loadAccounts();
+      setActiveTab("active");
+      window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      toast("Счёт восстановлен", "success");
+    } catch (error) {
+      console.error(error);
+      toast(error.message || "Не удалось восстановить счёт");
     }
   };
 
@@ -175,9 +263,10 @@ function Accounts() {
       closeEdit();
       await loadAccounts();
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      toast("Изменения сохранены", "success");
     } catch (error) {
       console.error(error);
-      alert(error.message || "Не удалось сохранить изменения");
+      toast(error.message || "Не удалось сохранить изменения");
     } finally {
       setEditSaving(false);
     }
@@ -191,7 +280,7 @@ function Accounts() {
     <div className="accounts-page">
       <div className="accounts-hero">
         <div>
-          <p>Управление счетами, картами и наличными</p>
+          <p>Управление счетами, переводами и архивом</p>
         </div>
       </div>
 
@@ -203,7 +292,7 @@ function Accounts() {
 
       <div className="accounts-stats">
         <div className="accounts-stat">
-          <span>Всего счетов</span>
+          <span>Активных счетов</span>
           <strong>{accounts.length}</strong>
         </div>
 
@@ -213,7 +302,82 @@ function Accounts() {
             {formatMoney(totalBalance, currency)}
           </strong>
         </div>
+
+        <div className="accounts-stat">
+          <span>В архиве</span>
+          <strong>{archivedAccounts.length}</strong>
+        </div>
       </div>
+
+      {accounts.length >= 2 && (
+        <section className="panel accounts-panel">
+          <div className="panel-head">
+            <h2>Перевод между счетами</h2>
+            <span>Создаёт две связанные операции в истории</span>
+          </div>
+
+          <form className="transfer-form" onSubmit={handleTransfer}>
+            <select
+              name="from_account_id"
+              value={transferForm.from_account_id}
+              onChange={handleTransferChange}
+              required
+            >
+              <option value="">Со счёта</option>
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name} ({formatMoney(acc.balance, acc.currency || currency)})
+                </option>
+              ))}
+            </select>
+
+            <select
+              name="to_account_id"
+              value={transferForm.to_account_id}
+              onChange={handleTransferChange}
+              required
+            >
+              <option value="">На счёт</option>
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name} ({formatMoney(acc.balance, acc.currency || currency)})
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="number"
+              name="amount"
+              min="0.01"
+              step="0.01"
+              placeholder="Сумма"
+              value={transferForm.amount}
+              onChange={handleTransferChange}
+              required
+            />
+
+            <input
+              type="date"
+              name="date"
+              value={transferForm.date}
+              onChange={handleTransferChange}
+              required
+            />
+
+            <input
+              type="text"
+              name="note"
+              placeholder="Комментарий (необязательно)"
+              value={transferForm.note}
+              onChange={handleTransferChange}
+            />
+
+            <button type="submit" disabled={transferSaving}>
+              {transferSaving ? "Перевод..." : "Перевести"}
+            </button>
+          </form>
+        </section>
+      )}
 
       <section className="panel accounts-panel">
         <div className="panel-head">
@@ -255,26 +419,48 @@ function Accounts() {
       </section>
 
       <section className="panel accounts-panel">
-        <div className="panel-head">
-          <h2>Мои счета</h2>
-          <span>{loading ? "Загрузка..." : "Готово"}</span>
+        <div className="panel-head accounts-list-head">
+          <div>
+            <h2>{activeTab === "active" ? "Мои счета" : "Архивные счета"}</h2>
+            <span>{loading ? "Загрузка..." : "Готово"}</span>
+          </div>
+
+          <div className="accounts-tabs">
+            <button
+              type="button"
+              className={activeTab === "active" ? "active" : ""}
+              onClick={() => setActiveTab("active")}
+            >
+              Активные ({accounts.length})
+            </button>
+            <button
+              type="button"
+              className={activeTab === "archived" ? "active" : ""}
+              onClick={() => setActiveTab("archived")}
+            >
+              Архив ({archivedAccounts.length})
+            </button>
+          </div>
         </div>
 
         {loading ? (
           <p className="empty-state">Загрузка...</p>
-        ) : accounts.length === 0 ? (
-          <p className="empty-state">Пока нет счетов</p>
+        ) : displayedAccounts.length === 0 ? (
+          <p className="empty-state">
+            {activeTab === "active" ? "Пока нет счетов" : "Архив пуст"}
+          </p>
         ) : (
           <div className="accounts-grid">
-            {accounts.map((acc) => {
+            {displayedAccounts.map((acc) => {
               const isNegative = Number(acc.balance || 0) < 0;
+              const isArchived = Boolean(acc.is_archived);
 
               return (
                 <article
                   key={acc.id}
                   className={`account-card account-type-${acc.type} ${
                     isNegative ? "account-card-negative" : ""
-                  }`}
+                  } ${isArchived ? "account-card-archived" : ""}`}
                 >
                   <div className="account-top">
                     <div>
@@ -285,23 +471,35 @@ function Accounts() {
                     </div>
 
                     <div className="account-actions">
-                      <button
-                        className="account-edit-btn"
-                        onClick={() => openEdit(acc)}
-                        title="Редактировать"
-                        type="button"
-                      >
-                        <FiEdit2 size={16} /> {/* ← иконка вместо ✏️ */}
-                      </button>
+                      {!isArchived && (
+                        <button
+                          className="account-edit-btn"
+                          onClick={() => openEdit(acc)}
+                          title="Редактировать"
+                          type="button"
+                        >
+                          <FiEdit2 size={16} />
+                        </button>
+                      )}
 
-                      <button
-                        className="account-close-btn"
-                        onClick={() => handleClose(acc.id)}
-                        title="Закрыть счёт"
-                        type="button"
-                      >
-                        Закрыть
-                      </button>
+                      {isArchived ? (
+                        <button
+                          className="account-restore-btn"
+                          onClick={() => handleRestore(acc.id)}
+                          type="button"
+                        >
+                          Восстановить
+                        </button>
+                      ) : (
+                        <button
+                          className="account-close-btn"
+                          onClick={() => handleClose(acc.id)}
+                          title="Закрыть счёт"
+                          type="button"
+                        >
+                          В архив
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -313,6 +511,13 @@ function Accounts() {
                     <span>Валюта</span>
                     <strong>{acc.currency || currency}</strong>
                   </div>
+
+                  {isArchived && acc.closed_at && (
+                    <div className="account-meta">
+                      <span>Закрыт</span>
+                      <strong>{new Date(acc.closed_at).toLocaleDateString("ru-RU")}</strong>
+                    </div>
+                  )}
 
                   {isNegative && (
                     <div className="account-badges">
@@ -332,7 +537,7 @@ function Accounts() {
             <div className="account-modal-head">
               <h3>Редактировать счёт</h3>
               <button type="button" className="modal-close-btn" onClick={closeEdit}>
-                <FiX size={18} /> {/* ← иконка вместо ✕ */}
+                <FiX size={18} />
               </button>
             </div>
 

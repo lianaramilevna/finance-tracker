@@ -1,60 +1,32 @@
-const API = "http://localhost:5000/api/accounts";
+import { apiRequest } from "./http";
 
-async function requestJson(url, options = {}) {
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-
-  const contentType = res.headers.get("content-type") || "";
-
-  if (!res.ok) {
-    if (contentType.includes("application/json")) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || "Request failed");
-    }
-
-    const text = await res.text();
-    throw new Error(text || "Request failed");
+export const getAccounts = async ({ archived = "active" } = {}) => {
+  const params = new URLSearchParams();
+  if (archived && archived !== "active") {
+    params.set("archived", archived);
   }
-
-  if (contentType.includes("application/json")) {
-    return res.json();
-  }
-
-  return null;
-}
-
-export const getAccounts = async (userId) => {
-  const res = await fetch(`${API}?user_id=${userId}`);
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.message || "Failed to load accounts");
-  }
-
-  return res.json();
+  const query = params.toString();
+  return apiRequest(query ? `/accounts?${query}` : "/accounts");
 };
 
-export const createAccount = async (payload) => {
-  return requestJson(API, {
+export const createAccount = async (payload) =>
+  apiRequest("/accounts", {
     method: "POST",
     body: JSON.stringify(payload),
   });
-};
 
-export const updateAccount = async (id, payload) => {
-  return requestJson(`${API}/${id}`, {
+export const updateAccount = async (id, payload) =>
+  apiRequest(`/accounts/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
-};
 
-export const closeAccount = async (id) => {
-  return requestJson(`${API}/${id}/close`, {
+export const closeAccount = async (id) =>
+  apiRequest(`/accounts/${id}/close`, {
     method: "PATCH",
   });
-};
+
+export const restoreAccount = async (id) =>
+  apiRequest(`/accounts/${id}/restore`, {
+    method: "PATCH",
+  });

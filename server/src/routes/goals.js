@@ -1,33 +1,8 @@
 const express = require("express");
 const pool = require("../db");
+const { insertTransaction } = require("../lib/transactionService");
 
 const router = express.Router();
-
-const initGoalsTables = pool.query(`
-  CREATE TABLE IF NOT EXISTS goals (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    target_amount NUMERIC(14, 2) NOT NULL CHECK (target_amount > 0),
-    current_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (current_amount >= 0),
-    target_date DATE NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'active',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS goal_contributions (
-    id SERIAL PRIMARY KEY,
-    goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
-    account_id INTEGER NULL REFERENCES accounts(id) ON DELETE SET NULL,
-    amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
-    note TEXT NULL,
-    date DATE NOT NULL DEFAULT CURRENT_DATE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  ALTER TABLE goal_contributions
-  ADD COLUMN IF NOT EXISTS account_id INTEGER NULL REFERENCES accounts(id) ON DELETE SET NULL;
-`);
 
 function toGoalDto(row) {
   const target = Number(row.target_amount || 0);
@@ -43,15 +18,30 @@ function toGoalDto(row) {
   };
 }
 
+async function getOwnedGoal(id, userId) {
+  const result = await pool.query(
+    `
+    SELECT id, user_id, name, target_amount, current_amount, target_date, status, created_at
+    FROM goals
+    WHERE id = $1
+    LIMIT 1
+    `,
+    [id]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  if (Number(result.rows[0].user_id) !== userId) {
+    return "forbidden";
+  }
+
+  return result.rows[0];
+}
+
 router.get("/", async (req, res) => {
   try {
-    await initGoalsTables;
-
-    const { user_id } = req.query;
-    if (!user_id) {
-      return res.status(400).json({ message: "user_id is required" });
-    }
-
     const result = await pool.query(
       `
       SELECT id, user_id, name, target_amount, current_amount, target_date, status, created_at
@@ -59,7 +49,7 @@ router.get("/", async (req, res) => {
       WHERE user_id = $1
       ORDER BY created_at DESC, id DESC
       `,
-      [user_id]
+      [req.userId]
     );
 
     res.json(result.rows.map(toGoalDto));
@@ -71,12 +61,10 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
-    await initGoalsTables;
-
-    const { user_id, name, target_amount, target_date = null } = req.body;
+    const { name, target_amount, target_date = null } = req.body;
     const target = Number(target_amount);
 
-    if (!user_id || !name || Number.isNaN(target) || target <= 0) {
+    if (!name || Number.isNaN(target) || target <= 0) {
       return res.status(400).json({ message: "Invalid payload" });
     }
 
@@ -86,7 +74,7 @@ router.post("/", async (req, res) => {
       VALUES ($1, $2, $3, $4)
       RETURNING id, user_id, name, target_amount, current_amount, target_date, status, created_at
       `,
-      [user_id, String(name).trim(), target, target_date || null]
+      [req.userId, String(name).trim(), target, target_date || null]
     );
 
     res.status(201).json(toGoalDto(created.rows[0]));
@@ -98,8 +86,6 @@ router.post("/", async (req, res) => {
 
 router.patch("/:id", async (req, res) => {
   try {
-    await initGoalsTables;
-
     const { id } = req.params;
     const { name, target_amount, target_date, status } = req.body;
     const target = target_amount !== undefined ? Number(target_amount) : null;
@@ -112,6 +98,14 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ message: "Invalid status" });
     }
 
+    const owned = await getOwnedGoal(id, req.userId);
+    if (owned === "forbidden") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    if (!owned) {
+      return res.status(404).json({ message: "Goal not found" });
+    }
+
     const currentGoal = await pool.query(
       `
       SELECT target_amount, current_amount, status
@@ -121,10 +115,6 @@ router.patch("/:id", async (req, res) => {
       `,
       [id]
     );
-
-    if (currentGoal.rows.length === 0) {
-      return res.status(404).json({ message: "Goal not found" });
-    }
 
     const existing = currentGoal.rows[0];
     const nextTarget = target !== null ? target : Number(existing.target_amount);
@@ -164,8 +154,6 @@ router.post("/:id/contribute", async (req, res) => {
   const client = await pool.connect();
 
   try {
-    await initGoalsTables;
-
     const { id } = req.params;
     const { amount, note = null, date = null, account_id = null } = req.body;
     const contribution = Number(amount);
@@ -193,13 +181,21 @@ router.post("/:id/contribute", async (req, res) => {
 
     const goal = goalResult.rows[0];
 
+    if (Number(goal.user_id) !== req.userId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    let transactionId = null;
+
     if (account_id) {
       const accountResult = await client.query(
         `
-        SELECT id, balance
+        SELECT id, balance, COALESCE(is_archived, false) AS is_archived
         FROM accounts
         WHERE id = $1 AND user_id = $2
         LIMIT 1
+        FOR UPDATE
         `,
         [account_id, goal.user_id]
       );
@@ -210,21 +206,35 @@ router.post("/:id/contribute", async (req, res) => {
       }
 
       const account = accountResult.rows[0];
-      const nextAccountBalance = Number(account.balance || 0) - contribution;
 
-      if (nextAccountBalance < 0) {
+      if (account.is_archived) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "Cannot contribute from archived account" });
+      }
+
+      if (Number(account.balance || 0) < contribution) {
         await client.query("ROLLBACK");
         return res.status(400).json({ message: "Insufficient account balance for contribution" });
       }
 
-      await client.query(
-        `
-        UPDATE accounts
-        SET balance = $1
-        WHERE id = $2
-        `,
-        [nextAccountBalance, account_id]
-      );
+      const goalName = (
+        await client.query(`SELECT name FROM goals WHERE id = $1`, [id])
+      ).rows[0]?.name;
+
+      const contributionDate =
+        date && String(date).trim()
+          ? String(date).trim()
+          : new Date().toISOString().slice(0, 10);
+
+      transactionId = await insertTransaction(client, {
+        userId: req.userId,
+        accountId: Number(account_id),
+        type: "expense",
+        amount: contribution,
+        date: contributionDate,
+        note: note || `Взнос в цель: ${goalName || "цель"}`,
+        categoryName: "Цели",
+      });
     }
 
     const nextCurrentAmount = Number(goal.current_amount || 0) + contribution;
@@ -242,10 +252,10 @@ router.post("/:id/contribute", async (req, res) => {
 
     await client.query(
       `
-      INSERT INTO goal_contributions (goal_id, account_id, amount, note, date)
-      VALUES ($1, $2, $3, $4, COALESCE($5, CURRENT_DATE))
+      INSERT INTO goal_contributions (goal_id, account_id, amount, note, date, transaction_id)
+      VALUES ($1, $2, $3, $4, COALESCE($5, CURRENT_DATE), $6)
       `,
-      [id, account_id || null, contribution, note, date]
+      [id, account_id || null, contribution, note, date, transactionId]
     );
 
     await client.query("COMMIT");
@@ -261,9 +271,15 @@ router.post("/:id/contribute", async (req, res) => {
 
 router.get("/:id/contributions", async (req, res) => {
   try {
-    await initGoalsTables;
-
     const { id } = req.params;
+    const owned = await getOwnedGoal(id, req.userId);
+    if (owned === "forbidden") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    if (!owned) {
+      return res.status(404).json({ message: "Goal not found" });
+    }
+
     const result = await pool.query(
       `
       SELECT
@@ -298,16 +314,15 @@ router.get("/:id/contributions", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   try {
-    await initGoalsTables;
-
     const { id } = req.params;
     const deleted = await pool.query(
       `
       DELETE FROM goals
       WHERE id = $1
+        AND user_id = $2
       RETURNING id
       `,
-      [id]
+      [id, req.userId]
     );
 
     if (deleted.rows.length === 0) {

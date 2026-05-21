@@ -11,6 +11,8 @@ import { getAccounts } from "../../shared/api/accounts";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import { formatDate, formatMoney } from "../../shared/lib/format";
 import { getCurrentUser } from "../../shared/lib/session";
+import { GOAL_STATUS_OPTIONS, formatGoalStatus } from "../../shared/lib/goalStatus";
+import { toast } from "../../shared/ui/ToastProvider";
 import "./goals.css";
 
 function getRecommendedContribution(goal) {
@@ -72,8 +74,8 @@ function Goals() {
     try {
       setLoading(true);
       const [goalsData, accountsData] = await Promise.all([
-        getGoals(userId),
-        getAccounts(userId),
+        getGoals(),
+        getAccounts(),
       ]);
       setGoals(Array.isArray(goalsData) ? goalsData : []);
       setAccounts(Array.isArray(accountsData) ? accountsData : []);
@@ -132,7 +134,7 @@ function Goals() {
       await loadGoals();
     } catch (error) {
       console.error(error);
-      alert("Не удалось создать цель");
+      toast("Не удалось создать цель");
     } finally {
       setSaving(false);
     }
@@ -159,7 +161,7 @@ function Goals() {
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
     } catch (error) {
       console.error(error);
-      alert("Не удалось пополнить цель");
+      toast("Не удалось пополнить цель");
     }
   };
 
@@ -174,7 +176,7 @@ function Goals() {
       await loadGoals();
     } catch (error) {
       console.error(error);
-      alert("Не удалось удалить цель");
+      toast("Не удалось удалить цель");
     }
   };
 
@@ -242,7 +244,7 @@ function Goals() {
       await loadGoals();
     } catch (error) {
       console.error(error);
-      alert("Не удалось обновить цель");
+      toast("Не удалось обновить цель");
     }
   };
 
@@ -347,6 +349,7 @@ function Goals() {
                         ? "Цель выполнена"
                         : `Осталось: ${formatMoney(goal.remaining, currency)}`}
                     </span>
+                    <span className="goal-status-badge">{formatGoalStatus(goal.status)}</span>
                   </div>
 
                   <div className="goal-extra-meta">
@@ -429,9 +432,11 @@ function Goals() {
                         value={editModel.status}
                         onChange={(event) => handleEditChange(goal.id, "status", event.target.value)}
                       >
-                        <option value="active">active</option>
-                        <option value="paused">paused</option>
-                        <option value="completed">completed</option>
+                        {GOAL_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   )}

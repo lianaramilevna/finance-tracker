@@ -1,64 +1,29 @@
-const API = "http://localhost:5000/api/goals";
+import { apiRequest } from "./http";
 
-async function requestJson(url, options = {}) {
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+export const getGoals = async () => apiRequest("/goals");
 
-  const contentType = res.headers.get("content-type") || "";
-
-  if (!res.ok) {
-    if (contentType.includes("application/json")) {
-      const data = await res.json();
-      throw new Error(data.message || "Request failed");
-    }
-
-    const text = await res.text();
-    throw new Error(text || "Request failed");
-  }
-
-  if (contentType.includes("application/json")) {
-    return res.json();
-  }
-
-  return null;
-}
-
-export const getGoals = async (userId) => {
-  return requestJson(`${API}?user_id=${encodeURIComponent(userId)}`);
-};
-
-export const createGoal = async (payload) => {
-  return requestJson(API, {
+export const createGoal = async (payload) =>
+  apiRequest("/goals", {
     method: "POST",
     body: JSON.stringify(payload),
   });
-};
 
-export const contributeToGoal = async (id, payload) => {
-  return requestJson(`${API}/${id}/contribute`, {
+export const contributeToGoal = async (id, payload) =>
+  apiRequest(`/goals/${id}/contribute`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
-};
 
-export const updateGoal = async (id, payload) => {
-  return requestJson(`${API}/${id}`, {
+export const updateGoal = async (id, payload) =>
+  apiRequest(`/goals/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
-};
 
-export const getGoalContributions = async (id) => {
-  return requestJson(`${API}/${id}/contributions`);
-};
+export const getGoalContributions = async (id) =>
+  apiRequest(`/goals/${id}/contributions`);
 
-export const deleteGoal = async (id) => {
-  return requestJson(`${API}/${id}`, {
+export const deleteGoal = async (id) =>
+  apiRequest(`/goals/${id}`, {
     method: "DELETE",
   });
-};

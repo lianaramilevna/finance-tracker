@@ -3,7 +3,9 @@ import { useState } from "react";
 import AddTransactionModal from "../../features/transactions/AddTransactionModal";
 import { createTransaction } from "../../shared/api/transactions";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
-import { getCurrentUser } from "../../shared/lib/session";
+import { logoutUser } from "../../shared/api/auth";
+import { clearSession, getCurrentUser } from "../../shared/lib/session";
+import { toast } from "../../shared/ui/ToastProvider";
 import { FiUser } from "react-icons/fi"; // ← импорт иконки
 import "./header.css";
 
@@ -33,13 +35,18 @@ function Header() {
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
     } catch (error) {
       console.error(error);
-      alert("Не удалось добавить транзакцию");
+      toast("Не удалось добавить транзакцию");
       throw error;
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch {
+      // ignore network errors on logout
+    }
+    clearSession();
     navigate("/", { replace: true });
   };
 

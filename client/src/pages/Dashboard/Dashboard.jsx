@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getTransactions } from "../../shared/api/transactions";
 import { getAccounts } from "../../shared/api/accounts";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
-import { calcExpense, calcIncome } from "../../shared/lib/calc";
+import { calcExpense, calcIncome, isTransferTransaction } from "../../shared/lib/calc";
 import { getCurrentUser } from "../../shared/lib/session";
 import { formatDate, formatMoney } from "../../shared/lib/format";
 import ExpenseChart from "../../widgets/charts/ExpenseChart";
@@ -97,8 +97,8 @@ function Dashboard() {
     try {
       setLoading(true);
       const [transactionsData, accountsData] = await Promise.all([
-        getTransactions(userId),
-        getAccounts(userId),
+        getTransactions(),
+        getAccounts(),
       ]);
       setTransactions(Array.isArray(transactionsData) ? transactionsData : []);
       setAccounts(Array.isArray(accountsData) ? accountsData : []);
@@ -148,16 +148,14 @@ function Dashboard() {
 
   const previousIncome = calcIncome(previousPeriodTransactions);
   const previousExpense = calcExpense(previousPeriodTransactions);
-  const previousPeriodResult = previousIncome - previousExpense;
 
-  const resultChange = getChangePercent(periodResult, previousPeriodResult);
   const incomeChange = getChangePercent(income, previousIncome);
   const expenseChange = getChangePercent(expense, previousExpense);
 
   const topExpenseCategory = useMemo(() => {
     const map = new Map();
     periodTransactions
-      .filter((t) => t.type === "expense")
+      .filter((t) => t.type === "expense" && !isTransferTransaction(t))
       .forEach((t) => {
         const key = t.category || "Без категории";
         map.set(key, (map.get(key) || 0) + Number(t.amount || 0));
@@ -168,11 +166,15 @@ function Dashboard() {
   }, [periodTransactions]);
 
   const latestIncome = useMemo(() => {
-    return periodTransactions.find((t) => t.type === "income");
+    return periodTransactions.find(
+      (t) => t.type === "income" && !isTransferTransaction(t)
+    );
   }, [periodTransactions]);
 
   const latestExpense = useMemo(() => {
-    return periodTransactions.find((t) => t.type === "expense");
+    return periodTransactions.find(
+      (t) => t.type === "expense" && !isTransferTransaction(t)
+    );
   }, [periodTransactions]);
 
   const expenseShare = useMemo(() => {
@@ -181,7 +183,9 @@ function Dashboard() {
   }, [expense, income]);
 
   const expenseTransactions = useMemo(() => {
-    return periodTransactions.filter((t) => t.type === "expense");
+    return periodTransactions.filter(
+      (t) => t.type === "expense" && !isTransferTransaction(t)
+    );
   }, [periodTransactions]);
 
   const handleApplyCustom = () => {
@@ -249,9 +253,6 @@ function Dashboard() {
         <div className="stat-card stat-balance">
           <span>Итог за период</span>
           <strong>{formatMoney(periodResult, currency)}</strong>
-          <small className={resultChange >= 0 ? "delta-positive" : "delta-negative"}>
-            
-          </small>
         </div>
 
         <div className="stat-card stat-income">

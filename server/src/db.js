@@ -1,13 +1,14 @@
 const { Pool } = require("pg");
-require("dotenv").config();
+const path = require("path");
+
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const pool = new Pool({
-  port: 5432,
-  host: "localhost",
-  database: "finance_tracker",
-  user: "postgres",
-  password: "Homescapes14l", // ← поставь свой пароль
-  
+  host: process.env.DB_HOST || process.env.PGHOST || "localhost",
+  port: Number(process.env.DB_PORT || process.env.PGPORT || 5432),
+  database: process.env.DB_NAME || process.env.PGDATABASE || "finance_tracker",
+  user: process.env.DB_USER || process.env.PGUSER || "postgres",
+  password: process.env.DB_PASSWORD || process.env.PGPASSWORD,
 });
 
 module.exports = pool;

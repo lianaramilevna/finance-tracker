@@ -1,10 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import Router from "./app/router";
+import ToastProvider from "./shared/ui/ToastProvider";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <Router />
+    <ToastProvider>
+      <Router />
+    </ToastProvider>
   </React.StrictMode>
 );

@@ -18,6 +18,7 @@ import { getAccounts } from "../../shared/api/accounts";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import { getCurrentUser } from "../../shared/lib/session";
 import { formatDate, formatMoney } from "../../shared/lib/format";
+import { calcExpense, calcIncome, isTransferTransaction } from "../../shared/lib/calc";
 import "./analytics.css";
 
 const PERIOD_OPTIONS = [
@@ -161,8 +162,8 @@ function Analytics() {
       setLoading(true);
 
       const [transactionsData, accountsData] = await Promise.all([
-        getTransactions(userId),
-        getAccounts(userId),
+        getTransactions(),
+        getAccounts(),
       ]);
 
       setTransactions(Array.isArray(transactionsData) ? transactionsData : []);
@@ -199,37 +200,19 @@ function Analytics() {
     );
   }, [transactions, period, ranges]);
 
-  const income = useMemo(
-    () =>
-      periodTransactions
-        .filter((t) => t.type === "income")
-        .reduce((sum, t) => sum + Number(t.amount || 0), 0),
-    [periodTransactions]
-  );
+  const income = useMemo(() => calcIncome(periodTransactions), [periodTransactions]);
 
-  const expense = useMemo(
-    () =>
-      periodTransactions
-        .filter((t) => t.type === "expense")
-        .reduce((sum, t) => sum + Number(t.amount || 0), 0),
-    [periodTransactions]
-  );
+  const expense = useMemo(() => calcExpense(periodTransactions), [periodTransactions]);
 
   const net = income - expense;
 
   const prevIncome = useMemo(
-    () =>
-      previousPeriodTransactions
-        .filter((t) => t.type === "income")
-        .reduce((sum, t) => sum + Number(t.amount || 0), 0),
+    () => calcIncome(previousPeriodTransactions),
     [previousPeriodTransactions]
   );
 
   const prevExpense = useMemo(
-    () =>
-      previousPeriodTransactions
-        .filter((t) => t.type === "expense")
-        .reduce((sum, t) => sum + Number(t.amount || 0), 0),
+    () => calcExpense(previousPeriodTransactions),
     [previousPeriodTransactions]
   );
 
@@ -260,7 +243,7 @@ function Analytics() {
     const map = new Map();
 
     periodTransactions
-      .filter((t) => t.type === "expense")
+      .filter((t) => t.type === "expense" && !isTransferTransaction(t))
       .forEach((t) => {
         const key = t.category || "Без категории";
         map.set(key, (map.get(key) || 0) + Number(t.amount || 0));
@@ -279,7 +262,7 @@ function Analytics() {
     const map = new Map();
 
     periodTransactions
-      .filter((t) => t.type === "income")
+      .filter((t) => t.type === "income" && !isTransferTransaction(t))
       .forEach((t) => {
         const key = t.category || "Без категории";
         map.set(key, (map.get(key) || 0) + Number(t.amount || 0));
@@ -298,7 +281,7 @@ function Analytics() {
     const map = new Map();
 
     periodTransactions
-      .filter((t) => t.type === "expense")
+      .filter((t) => t.type === "expense" && !isTransferTransaction(t))
       .forEach((t) => {
         const key = t.category || "Без категории";
         map.set(key, (map.get(key) || 0) + Number(t.amount || 0));
@@ -316,7 +299,7 @@ function Analytics() {
     const map = new Map();
 
     periodTransactions
-      .filter((t) => t.type === "income")
+      .filter((t) => t.type === "income" && !isTransferTransaction(t))
       .forEach((t) => {
         const key = t.category || "Без категории";
         map.set(key, (map.get(key) || 0) + Number(t.amount || 0));
@@ -350,6 +333,8 @@ function Analytics() {
     const lookup = new Map(months.map((item) => [item.key, item]));
 
     transactions.forEach((t) => {
+      if (isTransferTransaction(t)) return;
+
       const key = getMonthKey(t.date);
       if (!key || !lookup.has(key)) return;
 
@@ -370,7 +355,7 @@ function Analytics() {
   const biggestExpense = useMemo(() => {
     return (
       [...periodTransactions]
-        .filter((t) => t.type === "expense")
+        .filter((t) => t.type === "expense" && !isTransferTransaction(t))
         .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))[0] || null
     );
   }, [periodTransactions]);
@@ -378,7 +363,7 @@ function Analytics() {
   const biggestIncome = useMemo(() => {
     return (
       [...periodTransactions]
-        .filter((t) => t.type === "income")
+        .filter((t) => t.type === "income" && !isTransferTransaction(t))
         .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))[0] || null
     );
   }, [periodTransactions]);

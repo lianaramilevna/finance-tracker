@@ -4,6 +4,7 @@ import { getCategories } from "../../shared/api/categories";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import { formatMoney } from "../../shared/lib/format";
 import { getCurrentUser } from "../../shared/lib/session";
+import { toast } from "../../shared/ui/ToastProvider";
 import "./budgets.css";
 
 function getMonthValue(date = new Date()) {
@@ -39,8 +40,8 @@ function Budgets() {
     try {
       setLoading(true);
       const [categoriesResult, budgetsResult] = await Promise.allSettled([
-        getCategories("expense", userId),
-        getBudgets(userId, month),
+        getCategories("expense"),
+        getBudgets(month),
       ]);
 
       if (categoriesResult.status === "fulfilled") {
@@ -113,7 +114,7 @@ function Budgets() {
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
     } catch (error) {
       console.error(error);
-      alert("Не удалось сохранить бюджет");
+      toast("Не удалось сохранить бюджет");
     } finally {
       setSaving(false);
     }
@@ -130,7 +131,7 @@ function Budgets() {
       await loadData();
     } catch (error) {
       console.error(error);
-      alert("Не удалось обновить лимит");
+      toast("Не удалось обновить лимит");
     }
   };
 
@@ -145,7 +146,7 @@ function Budgets() {
       await loadData();
     } catch (error) {
       console.error(error);
-      alert("Не удалось удалить лимит");
+      toast("Не удалось удалить лимит");
     }
   };
 

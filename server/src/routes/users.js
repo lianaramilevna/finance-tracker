@@ -1,8 +1,11 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const pool = require("../db");
+const { requireSelfParam } = require("../middleware/authenticate");
 
 const router = express.Router();
+
+router.use("/:id", requireSelfParam("id"));
 
 const SALT_ROUNDS = 12;
 const ALLOWED_CURRENCIES = ["RUB", "EUR", "USD"];

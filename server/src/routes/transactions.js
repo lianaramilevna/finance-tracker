@@ -61,6 +61,7 @@ async function buildTransactionResponse(client, transactionId) {
       t.type,
       t.note,
       t.date,
+      t.transfer_group_id,
       t.created_at
     FROM transactions t
     LEFT JOIN categories c ON t.category_id = c.id
@@ -76,7 +77,8 @@ async function buildTransactionResponse(client, transactionId) {
 
 router.get("/", async (req, res) => {
   try {
-    const result = await pool.query(`
+    const result = await pool.query(
+      `
       SELECT
         t.id,
         t.user_id,
@@ -90,12 +92,16 @@ router.get("/", async (req, res) => {
         t.type,
         t.note,
         t.date,
+        t.transfer_group_id,
         t.created_at
       FROM transactions t
       LEFT JOIN categories c ON t.category_id = c.id
       LEFT JOIN accounts a ON t.account_id = a.id
+      WHERE t.user_id = $1
       ORDER BY t.created_at DESC, t.id DESC
-    `);
+      `,
+      [req.userId]
+    );
 
     res.json(result.rows);
   } catch (error) {
@@ -139,7 +145,7 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "account_id is required" });
     }
 
-    const userId = toPositiveInt(user_id);
+    const userId = req.userId;
 
     await client.query("BEGIN");
 
@@ -159,9 +165,9 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Account not found" });
     }
 
-    const ownerUserId = userId || Number(accountCheck.rows[0].user_id);
+    const ownerUserId = userId;
 
-    if (userId && Number(accountCheck.rows[0].user_id) !== Number(userId)) {
+    if (Number(accountCheck.rows[0].user_id) !== ownerUserId) {
       await client.query("ROLLBACK");
       return res.status(403).json({ message: "Account does not belong to user" });
     }
@@ -258,6 +264,11 @@ router.patch("/:id", async (req, res) => {
 
     const existing = existingResult.rows[0];
 
+    if (Number(existing.user_id) !== req.userId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
     const nextType = type && ["expense", "income"].includes(type) ? type : existing.type;
     const nextDate = date || existing.date;
     const nextAmount =
@@ -271,7 +282,7 @@ router.patch("/:id", async (req, res) => {
     }
 
     const nextAccountId = toPositiveInt(account_id) || Number(existing.account_id);
-    const ownerUserId = toPositiveInt(user_id) || Number(existing.user_id);
+    const ownerUserId = req.userId;
 
     const accountCheck = await client.query(
       `
@@ -362,7 +373,7 @@ router.delete("/:id", async (req, res) => {
 
     const existing = await client.query(
       `
-      SELECT id, account_id
+      SELECT id, user_id, account_id
       FROM transactions
       WHERE id = $1
       LIMIT 1
@@ -374,6 +385,11 @@ router.delete("/:id", async (req, res) => {
     if (existing.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    if (Number(existing.rows[0].user_id) !== req.userId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: "Forbidden" });
     }
 
     const accountId = Number(existing.rows[0].account_id);

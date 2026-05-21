@@ -5,7 +5,8 @@ import {
   getUserSettings,
   updateUserSettings,
 } from "../../shared/api/users";
-import { getCurrentUser, saveCurrentUser } from "../../shared/lib/session";
+import { logoutUser } from "../../shared/api/auth";
+import { clearSession, getCurrentUser, updateCurrentUser } from "../../shared/lib/session";
 import "./settings.css";
 
 const CURRENCIES = ["RUB", "EUR", "USD"];
@@ -77,7 +78,7 @@ function Settings() {
           currency: nextUser.currency,
         });
 
-        saveCurrentUser(nextUser);
+        updateCurrentUser(nextUser);
         setMessage("");
       } catch (error) {
         console.error(error);
@@ -202,7 +203,7 @@ function Settings() {
         currency: updated.currency,
       };
 
-      saveCurrentUser(nextUser);
+      updateCurrentUser(nextUser);
 
       setProfileForm({
         username: updated.username,
@@ -256,9 +257,14 @@ function Settings() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    navigate("/auth", { replace: true });
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch {
+      // ignore network errors on logout
+    }
+    clearSession();
+    navigate("/", { replace: true });
   };
 
   if (loading) {

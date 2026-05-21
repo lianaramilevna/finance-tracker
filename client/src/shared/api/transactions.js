@@ -1,60 +1,20 @@
-const API = "http://localhost:5000/api/transactions";
+import { apiRequest } from "./http";
 
-async function requestJson(url, options = {}) {
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+export const getTransactions = async () => apiRequest("/transactions");
 
-  const contentType = res.headers.get("content-type") || "";
-
-  if (!res.ok) {
-    if (contentType.includes("application/json")) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || "Request failed");
-    }
-
-    const text = await res.text();
-    throw new Error(text || "Request failed");
-  }
-
-  if (contentType.includes("application/json")) {
-    return res.json();
-  }
-
-  return null;
-}
-
-export const getTransactions = async (userId) => {
-  const res = await fetch(`${API}?user_id=${userId}`);
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.message || `Failed to load transactions: ${res.status}`);
-  }
-
-  return res.json();
-};
-
-export const createTransaction = async (data) => {
-  return requestJson(API, {
+export const createTransaction = async (data) =>
+  apiRequest("/transactions", {
     method: "POST",
     body: JSON.stringify(data),
   });
-};
 
-export const updateTransaction = async (id, data) => {
-  return requestJson(`${API}/${id}`, {
+export const updateTransaction = async (id, data) =>
+  apiRequest(`/transactions/${id}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   });
-};
 
-export const deleteTransaction = async (id) => {
-  return requestJson(`${API}/${id}`, {
+export const deleteTransaction = async (id) =>
+  apiRequest(`/transactions/${id}`, {
     method: "DELETE",
   });
-};

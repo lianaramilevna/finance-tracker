@@ -1,6 +1,12 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const pool = require("../db");
+const {
+  toPublicUser,
+  signUserToken,
+  setAuthCookie,
+  clearAuthCookie,
+} = require("../lib/authToken");
 
 const router = express.Router();
 
@@ -145,7 +151,11 @@ router.post("/register", async (req, res) => {
       [cleanedUsername, cleanedEmail, passwordHash]
     );
 
-    res.status(201).json(created.rows[0]);
+    const user = created.rows[0];
+    const token = signUserToken(user.id);
+    setAuthCookie(res, token);
+
+    res.status(201).json({ user: toPublicUser(user), token });
   } catch (error) {
     console.error("POST /api/register error:", error);
     res.status(500).json({ message: "Server error" });
@@ -204,16 +214,20 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    res.json({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      currency: user.currency || "RUB",
-    });
+    const publicUser = toPublicUser(user);
+    const token = signUserToken(user.id);
+    setAuthCookie(res, token);
+
+    res.json({ user: publicUser, token });
   } catch (error) {
     console.error("POST /api/login error:", error);
     res.status(500).json({ message: "Server error" });
   }
+});
+
+router.post("/logout", (req, res) => {
+  clearAuthCookie(res);
+  res.json({ success: true });
 });
 
 module.exports = router;

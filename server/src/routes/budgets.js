@@ -71,6 +71,7 @@ async function getBudgetRows(client, userId, monthKey) {
       WHERE t.user_id = $1
         AND t.category_id = $2
         AND t.type = 'expense'
+        AND t.transfer_group_id IS NULL
         AND t.date >= $3::date
         AND t.date <= $4::date
       `,
@@ -100,12 +101,8 @@ async function getBudgetRows(client, userId, monthKey) {
 
 router.get("/", async (req, res) => {
   try {
-    const userId = toPositiveInt(req.query.user_id);
+    const userId = req.userId;
     const month = String(req.query.month || getCurrentMonthKey()).trim();
-
-    if (!userId) {
-      return res.status(400).json({ message: "user_id is required" });
-    }
 
     const monthRange = parseMonthKey(month);
     if (!monthRange) {
@@ -124,12 +121,12 @@ router.post("/", async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const userId = toPositiveInt(req.body.user_id);
+    const userId = req.userId;
     const categoryId = toPositiveInt(req.body.category_id);
     const month = String(req.body.month || getCurrentMonthKey()).trim();
     const limitAmount = Number(req.body.limit_amount);
 
-    if (!userId || !categoryId || !month || !Number.isFinite(limitAmount) || limitAmount < 0) {
+    if (!categoryId || !month || !Number.isFinite(limitAmount) || limitAmount < 0) {
       return res.status(400).json({ message: "Invalid payload" });
     }
 
@@ -216,9 +213,10 @@ router.patch("/:id", async (req, res) => {
       UPDATE budgets
       SET limit_amount = $1
       WHERE id = $2
+        AND user_id = $3
       RETURNING id, user_id, category_id, month, limit_amount
       `,
-      [limitAmount, id]
+      [limitAmount, id, req.userId]
     );
 
     if (updated.rows.length === 0) {
@@ -249,9 +247,10 @@ router.delete("/:id", async (req, res) => {
       `
       DELETE FROM budgets
       WHERE id = $1
+        AND user_id = $2
       RETURNING id
       `,
-      [id]
+      [id, req.userId]
     );
 
     if (deleted.rows.length === 0) {

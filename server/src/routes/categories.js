@@ -10,16 +10,14 @@ const router = express.Router();
 
 router.get("/", async (req, res) => {
   try {
-    const { type, user_id } = req.query;
+    const { type } = req.query;
 
     if (!type || !["expense", "income"].includes(type)) {
       return res.status(400).json({ message: "Type is required" });
     }
 
-    const userId = user_id ? Number(user_id) : null;
-
     const categories = await listUniqueCategories(pool, {
-      userId,
+      userId: req.userId,
       type,
     });
 
@@ -32,7 +30,7 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
-    const { name, type, user_id = null } = req.body;
+    const { name, type } = req.body;
 
     if (!name || !type || !["expense", "income"].includes(type)) {
       return res.status(400).json({ message: "Invalid data" });
@@ -43,10 +41,8 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Category name is required" });
     }
 
-    const userId = user_id ? Number(user_id) : null;
-
     const category = await getOrCreateCategory(pool, {
-      userId,
+      userId: req.userId,
       type,
       name: cleanedName,
     });

@@ -9,24 +9,14 @@ import Settings from "../pages/Settings/Settings";
 import Budgets from "../pages/Budgets/Budgets";
 import Goals from "../pages/Goals/Goals";
 import ImportPage from "../pages/Import/ImportPage";
-
-function getCurrentUser() {
-  try {
-    const raw = localStorage.getItem("user");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
+import { isAuthenticated } from "../shared/lib/session";
 
 function RequireAuth({ children }) {
-  const user = getCurrentUser();
-  return user ? children : <Navigate to="/" replace />;
+  return isAuthenticated() ? children : <Navigate to="/" replace />;
 }
 
 function PublicOnly({ children }) {
-  const user = getCurrentUser();
-  return user ? <Navigate to="/dashboard" replace /> : children;
+  return isAuthenticated() ? <Navigate to="/dashboard" replace /> : children;
 }
 
 function Router() {

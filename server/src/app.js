@@ -1,6 +1,8 @@
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 
+const { authenticate } = require("./middleware/authenticate");
 const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
 const categoriesRoutes = require("./routes/categories");
@@ -9,9 +11,19 @@ const accountsRoutes = require("./routes/accounts");
 const budgetsRoutes = require("./routes/budgets");
 const goalsRoutes = require("./routes/goals");
 const importsRoutes = require("./routes/imports");
+const transfersRoutes = require("./routes/transfers");
+
 const app = express();
 
-app.use(cors());
+const clientOrigin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+
+app.use(
+  cors({
+    origin: clientOrigin,
+    credentials: true,
+  })
+);
+app.use(cookieParser());
 app.use(express.json());
 
 app.get("/api/health", async (req, res) => {
@@ -24,11 +36,13 @@ app.get("/api/health", async (req, res) => {
 });
 
 app.use("/api", authRoutes);
-app.use("/api/users", usersRoutes);
-app.use("/api/categories", categoriesRoutes);
-app.use("/api/transactions", transactionsRoutes);
-app.use("/api/accounts", accountsRoutes);
-app.use("/api/budgets", budgetsRoutes);
-app.use("/api/goals", goalsRoutes);
-app.use("/api/imports", importsRoutes);
+app.use("/api/users", authenticate, usersRoutes);
+app.use("/api/categories", authenticate, categoriesRoutes);
+app.use("/api/transactions", authenticate, transactionsRoutes);
+app.use("/api/accounts", authenticate, accountsRoutes);
+app.use("/api/budgets", authenticate, budgetsRoutes);
+app.use("/api/goals", authenticate, goalsRoutes);
+app.use("/api/imports", authenticate, importsRoutes);
+app.use("/api/transfers", authenticate, transfersRoutes);
+
 module.exports = app;

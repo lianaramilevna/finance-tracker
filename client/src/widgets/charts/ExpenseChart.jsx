@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatMoney } from "../../shared/lib/format";
+import { isTransferTransaction } from "../../shared/lib/calc";
 
 const COLORS = [
   "#6366f1",
@@ -26,7 +27,7 @@ function ExpenseChart({ transactions, currency = "RUB" }) {
     const map = new Map();
 
     transactions
-      .filter((t) => t.type === "expense")
+      .filter((t) => t.type === "expense" && !isTransferTransaction(t))
       .forEach((t) => {
         const name = t.category || "Без категории";
         const amount = Number(t.amount || 0);

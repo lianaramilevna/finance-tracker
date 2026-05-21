@@ -5,9 +5,8 @@ import {
   loginUser,
   registerUser,
 } from "../../shared/api/auth";
+import { saveSession } from "../../shared/lib/session";
 import "./AuthPage.css";
-
-const CURRENT_USER_KEY = "user";
 
 function validateUsername(username) {
   const value = String(username || "").trim();
@@ -269,12 +268,12 @@ function AuthPage() {
       setLoading(true);
 
       if (isLogin) {
-        const user = await loginUser({
+        const { user, token } = await loginUser({
           login: form.login,
           password: form.password,
         });
 
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+        saveSession({ user, token });
         navigate("/dashboard", { replace: true });
         return;
       }
@@ -292,13 +291,13 @@ function AuthPage() {
         setUsernameStatus("available");
       }
 
-      const user = await registerUser({
+      const { user, token } = await registerUser({
         username: form.username,
         email: form.email,
         password: form.password,
       });
 
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+      saveSession({ user, token });
       navigate("/dashboard", { replace: true });
     } catch (err) {
       setErrors((prev) => ({

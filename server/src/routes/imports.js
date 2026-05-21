@@ -46,12 +46,8 @@ async function getExistingSignatures(client, userId, accountId) {
 
 router.post("/preview", upload.single("file"), async (req, res) => {
   try {
-    const userId = toPositiveInt(req.body.user_id);
+    const userId = req.userId;
     const accountId = toPositiveInt(req.body.account_id);
-
-    if (!userId) {
-      return res.status(400).json({ message: "user_id is required" });
-    }
 
     if (!accountId) {
       return res.status(400).json({ message: "account_id is required" });
@@ -124,13 +120,9 @@ router.post("/commit", async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const userId = toPositiveInt(req.body.user_id);
+    const userId = req.userId;
     const accountId = toPositiveInt(req.body.account_id);
     const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
-
-    if (!userId) {
-      return res.status(400).json({ message: "user_id is required" });
-    }
 
     if (!accountId) {
       return res.status(400).json({ message: "account_id is required" });
