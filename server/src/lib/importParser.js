@@ -168,6 +168,121 @@ function readSheetRows(buffer) {
   return XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
 }
 
+function normalizeAmountForSignature(amount) {
+  const num = Number(amount);
+  if (!Number.isFinite(num)) return "0.00";
+  return (Math.round(Math.abs(num) * 100) / 100).toFixed(2);
+}
+
+function formatSignatureDate(value) {
+  if (!value) return "";
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return formatDateYMD(
+      value.getUTCFullYear(),
+      value.getUTCMonth() + 1,
+      value.getUTCDate()
+    );
+  }
+
+  const raw = String(value).trim();
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return formatDateYMD(
+      parsed.getUTCFullYear(),
+      parsed.getUTCMonth() + 1,
+      parsed.getUTCDate()
+    );
+  }
+
+  return raw;
+}
+
+function normalizeNoteForSignature(note) {
+  let text = normalizeText(note);
+  if (!text) return "";
+
+  text = text
+    .replace(/\bmcc\b\s*[:\-]?\s*\d{4}\b/gi, " ")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text;
+}
+
+function extractExternalId(row) {
+  const raw = extractColumnValue(row, [
+    "id",
+    "transaction id",
+    "transaction_id",
+    "operation id",
+    "operation_id",
+    "номер операции",
+    "номер документа",
+    "номер док",
+    "reference",
+    "ref",
+    "rrn",
+    "auth code",
+    "auth_code",
+    "код авторизации",
+    "ид операции",
+    "идентификатор операции",
+    "document number",
+    "doc id",
+    "doc_id",
+    "№ документа",
+    "уникальный номер",
+  ]);
+
+  const cleaned = String(raw || "").trim();
+  if (!cleaned) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return null;
+  if (/^\d+([.,]\d+)?$/.test(cleaned.replace(/\s/g, ""))) return null;
+
+  return cleaned;
+}
+
+function buildLegacySignature({ date, type, amount, note }) {
+  const normalizedType = type === "income" ? "income" : "expense";
+  return `${formatSignatureDate(date)}|${normalizedType}|${normalizeAmountForSignature(
+    amount
+  )}|${normalizeNoteForSignature(note)}`;
+}
+
+function buildSignatureKeys({ date, type, amount, note, externalId }) {
+  const legacy = buildLegacySignature({ date, type, amount, note });
+  const keys = [legacy];
+
+  const ext = String(externalId || "").trim();
+  if (ext) {
+    keys.push(`ext|${normalizeText(ext)}`);
+  }
+
+  return keys;
+}
+
+function buildSignature(params) {
+  return buildLegacySignature(params);
+}
+
+function markSignaturesSeen(seen, keys) {
+  for (const key of keys) {
+    seen.add(key);
+  }
+}
+
+function hasAnySignature(seen, keys) {
+  return keys.some((key) => seen.has(key));
+}
+
 function parseRows(rawRows) {
   const rows = [];
   const errors = [];
@@ -249,10 +364,18 @@ function parseRows(rawRows) {
       row,
     });
 
-    const signature = `${date}|${type}|${amount.toFixed(2)}|${normalizeText(note)}`;
+    const externalId = extractExternalId(row);
+    const signatureKeys = buildSignatureKeys({
+      date,
+      type,
+      amount,
+      note,
+      externalId,
+    });
+    const signature = signatureKeys[0];
 
-    const duplicateInFile = seenInFile.has(signature);
-    seenInFile.add(signature);
+    const duplicateInFile = hasAnySignature(seenInFile, signatureKeys);
+    markSignaturesSeen(seenInFile, signatureKeys);
 
     rows.push({
       rowNumber: index + 2,
@@ -263,6 +386,7 @@ function parseRows(rawRows) {
       category,
       duplicateInFile,
       signature,
+      externalId,
       mcc: extractMccFromRow(row),
     });
   });
@@ -291,15 +415,12 @@ function parseRows(rawRows) {
   };
 }
 
-function buildSignature({ date, type, amount, note }) {
-  return `${String(date || "").trim()}|${String(type || "").trim()}|${Number(
-    amount || 0
-  ).toFixed(2)}|${normalizeText(note)}`;
-}
-
 module.exports = {
   readSheetRows,
   parseRows,
   buildSignature,
+  buildSignatureKeys,
   normalizeText,
+  normalizeNoteForSignature,
+  formatSignatureDate,
 };

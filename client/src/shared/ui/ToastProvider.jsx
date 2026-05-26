@@ -13,6 +13,10 @@ export function toast(message, type = "error") {
   console.warn("[toast]", type, message);
 }
 
+toast.success = (message) => toast(message, "success");
+toast.error = (message) => toast(message, "error");
+toast.info = (message) => toast(message, "info");
+
 export function useToast() {
   const ctx = useContext(ToastContext);
   if (!ctx) {

@@ -18,12 +18,10 @@ const COLORS = [
   "#a855f7",
 ];
 
-// Цвет для категории "Прочее"
 const OTHER_COLOR = "#94a3b8";
 
 function ExpenseChart({ transactions, currency = "RUB" }) {
   const data = useMemo(() => {
-    // 1. Агрегируем расходы по категориям
     const map = new Map();
 
     transactions
@@ -34,37 +32,50 @@ function ExpenseChart({ transactions, currency = "RUB" }) {
         map.set(name, (map.get(name) || 0) + amount);
       });
 
-    // 2. Превращаем в массив и сортируем по убыванию суммы
     let items = [...map.entries()]
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
 
-    // 3. Выделяем топ-6 и остальное
     const TOP_LIMIT = 6;
     const topItems = items.slice(0, TOP_LIMIT);
     const otherItems = items.slice(TOP_LIMIT);
 
-    if (otherItems.length === 0) {
-      // Если остальных нет, возвращаем топ (может быть меньше 6)
-      return topItems;
+    let chartItems = topItems;
+    if (otherItems.length > 0) {
+      const otherSum = otherItems.reduce((sum, item) => sum + item.value, 0);
+      chartItems = [...topItems, { name: "Прочее", value: otherSum }];
     }
 
-    // 4. Суммируем остальные в "Прочее"
-    const otherSum = otherItems.reduce((sum, item) => sum + item.value, 0);
-    const result = [...topItems, { name: "Прочее", value: otherSum }];
+    const total = chartItems.reduce((sum, item) => sum + item.value, 0);
+    if (total <= 0) return chartItems;
 
-    return result;
+    const tiny = chartItems.filter(
+      (item) => item.name !== "Прочее" && Math.round((item.value / total) * 100) === 0
+    );
+    if (tiny.length === 0) return chartItems;
+
+    const kept = chartItems.filter(
+      (item) => item.name === "Прочее" || Math.round((item.value / total) * 100) > 0
+    );
+    const tinySum = tiny.reduce((sum, item) => sum + item.value, 0);
+    const otherIndex = kept.findIndex((item) => item.name === "Прочее");
+
+    if (tinySum <= 0) return kept;
+    if (otherIndex >= 0) {
+      return kept.map((item, index) =>
+        index === otherIndex ? { ...item, value: item.value + tinySum } : item
+      );
+    }
+
+    return [...kept, { name: "Прочее", value: tinySum }];
   }, [transactions]);
 
-  const total = useMemo(() => {
-    return data.reduce((sum, item) => sum + item.value, 0);
-  }, [data]);
+  const total = useMemo(() => data.reduce((sum, item) => sum + item.value, 0), [data]);
 
   if (data.length === 0) {
     return <p className="empty-state">Нет расходов для отображения</p>;
   }
 
-  // Функция для получения цвета элемента
   const getColor = (index, name) => {
     if (name === "Прочее") return OTHER_COLOR;
     return COLORS[index % COLORS.length];
@@ -79,10 +90,7 @@ function ExpenseChart({ transactions, currency = "RUB" }) {
 
           return (
             <div key={item.name} className="expense-legend-item" title={`${item.name} — ${share}%`}>
-              <span
-                className="expense-legend-dot"
-                style={{ backgroundColor: color }}
-              />
+              <span className="expense-legend-dot" style={{ backgroundColor: color }} />
               <span className="expense-legend-name">{item.name}</span>
               <span className="expense-legend-percent">{share}%</span>
             </div>
@@ -104,10 +112,7 @@ function ExpenseChart({ transactions, currency = "RUB" }) {
               strokeWidth={3}
             >
               {data.map((entry, index) => (
-                <Cell
-                  key={`${entry.name}-${index}`}
-                  fill={getColor(index, entry.name)}
-                />
+                <Cell key={`${entry.name}-${index}`} fill={getColor(index, entry.name)} />
               ))}
             </Pie>
 
@@ -127,3 +132,4 @@ function ExpenseChart({ transactions, currency = "RUB" }) {
 }
 
 export default ExpenseChart;
+

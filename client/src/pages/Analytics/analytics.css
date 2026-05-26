@@ -27,20 +27,27 @@
   max-width: 70ch;
 }
 
-.analytics-period {
+.analytics-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.analytics-filter {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 180px;
 }
 
-.analytics-period label {
+.analytics-filter label {
   font-size: 13px;
   color: #64748b;
   font-weight: 600;
 }
 
-.analytics-period select {
+.analytics-filter select {
   border: 1px solid #e2e8f0;
   background: white;
   border-radius: 14px;
@@ -49,9 +56,55 @@
   transition: 0.2s ease;
 }
 
-.analytics-period select:focus {
+.analytics-filter select:focus {
   border-color: #6366f1;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.analytics-active-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #3730a3;
+  font-size: 14px;
+}
+
+.analytics-reset-btn {
+  border: none;
+  background: white;
+  color: #4338ca;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.analytics-reset-btn:hover {
+  background: #f8fafc;
+}
+
+.analytics-section-footer {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.analytics-link-btn {
+  font-size: 14px;
+  font-weight: 600;
+  color: #4f46e5;
+  text-decoration: none;
+}
+
+.analytics-link-btn:hover {
+  text-decoration: underline;
 }
 
 .analytics-stats {

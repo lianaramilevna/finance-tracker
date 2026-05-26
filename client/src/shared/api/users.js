@@ -14,3 +14,13 @@ export const changeUserPassword = async (userId, payload) =>
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+
+export const clearUserData = async (userId) =>
+  apiRequest(`/users/${userId}/clear-data`, {
+    method: "POST",
+  });
+
+export const deleteUserAccount = async (userId) =>
+  apiRequest(`/users/${userId}`, {
+    method: "DELETE",
+  });

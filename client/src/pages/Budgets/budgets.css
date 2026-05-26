@@ -25,16 +25,51 @@
   font-size: 15px;
 }
 
+.budgets-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.budgets-month-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.budgets-month-field span {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 600;
+}
+
 .budgets-month {
   border: 1px solid #dbe2ea;
   border-radius: 12px;
   padding: 10px 12px;
   background: #fff;
+  font-size: 14px;
+}
+
+.budgets-month-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.budgets-month-hint strong {
+  color: #0f172a;
 }
 
 .budgets-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -143,6 +178,45 @@
   font-size: 14px;
 }
 
+.budget-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.budget-status-badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.budget-status-badge--ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.budget-status-badge--warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.budget-status-badge--exceeded {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.budget-item--warning {
+  border-color: #fde68a;
+}
+
+.budget-item--exceeded {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
 .budget-delete {
   background: #e2e8f0;
   color: #0f172a;
@@ -194,7 +268,113 @@
   padding: 20px 0;
 }
 
+.budgets-collapsible {
+  padding: 0;
+}
+
+.budgets-collapsible-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+  user-select: none;
+}
+
+.budgets-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.budgets-collapsible-summary span {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.budgets-collapsible-summary::after {
+  content: "Показать";
+  font-size: 13px;
+  font-weight: 600;
+  color: #6366f1;
+}
+
+.budgets-collapsible[open] .budgets-collapsible-summary {
+  padding-bottom: 12px;
+}
+
+.budgets-collapsible[open] .budgets-collapsible-summary::after {
+  content: "Скрыть";
+}
+
+.budgets-collapsible .budgets-guide-grid,
+.budgets-collapsible .budgets-guide-list {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.budgets-collapsible .budgets-guide-list {
+  padding-bottom: 20px;
+}
+
+.budgets-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.budgets-guide-card {
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+}
+
+.budgets-guide-card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.budgets-guide-card p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.budgets-guide-card p:last-child {
+  margin-bottom: 0;
+}
+
+.budgets-guide-example {
+  font-size: 13px !important;
+  color: #64748b !important;
+  font-style: italic;
+}
+
+.budgets-guide-list {
+  margin: 0;
+  padding-left: 20px;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.budgets-guide-list strong {
+  color: #0f172a;
+}
+
 @media (max-width: 900px) {
+  .budgets-guide-grid {
+    grid-template-columns: 1fr;
+  }
+
   .budgets-stats {
     grid-template-columns: 1fr;
   }
@@ -206,5 +386,15 @@
   .budgets-hero {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .budget-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .budget-top-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }

@@ -9,6 +9,7 @@ import Settings from "../pages/Settings/Settings";
 import Budgets from "../pages/Budgets/Budgets";
 import Goals from "../pages/Goals/Goals";
 import ImportPage from "../pages/Import/ImportPage";
+import Assistant from "../pages/Assistant/Assistant";
 import { isAuthenticated } from "../shared/lib/session";
 
 function RequireAuth({ children }) {
@@ -42,6 +43,7 @@ function Router() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/import" element={<ImportPage />} />
+          <Route path="/assistant" element={<Assistant />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/budgets" element={<Budgets />} />

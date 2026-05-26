@@ -394,6 +394,38 @@ router.delete("/:id", async (req, res) => {
 
     const accountId = Number(existing.rows[0].account_id);
 
+    const linkedContributions = await client.query(
+      `
+      SELECT id, goal_id, amount
+      FROM goal_contributions
+      WHERE transaction_id = $1
+      `,
+      [transactionId]
+    );
+
+    for (const contribution of linkedContributions.rows) {
+      const goalId = Number(contribution.goal_id);
+      const contributionAmount = Number(contribution.amount || 0);
+
+      await client.query(
+        `
+        UPDATE goals
+        SET
+          current_amount = GREATEST(0, current_amount - $1),
+          status = CASE
+            WHEN GREATEST(0, current_amount - $1) >= target_amount THEN 'completed'
+            ELSE 'active'
+          END
+        WHERE id = $2
+        `,
+        [contributionAmount, goalId]
+      );
+
+      await client.query(`DELETE FROM goal_contributions WHERE id = $1`, [
+        contribution.id,
+      ]);
+    }
+
     await client.query(
       `
       DELETE FROM transactions

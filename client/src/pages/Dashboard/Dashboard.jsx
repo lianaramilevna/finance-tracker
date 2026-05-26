@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { getTransactions } from "../../shared/api/transactions";
 import { getAccounts } from "../../shared/api/accounts";
+import { getBudgets } from "../../shared/api/budgets";
+import { getGoals } from "../../shared/api/goals";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import { calcExpense, calcIncome, isTransferTransaction } from "../../shared/lib/calc";
+import {
+  formatChangePercent,
+  formatPreviousPeriodHint,
+  getChangePercent,
+  getCustomPeriodRange,
+  getPeriodRange,
+  isWithinRange,
+} from "../../shared/lib/periodRange";
 import { getCurrentUser } from "../../shared/lib/session";
 import { formatDate, formatMoney } from "../../shared/lib/format";
 import ExpenseChart from "../../widgets/charts/ExpenseChart";
+import EmptyState from "../../shared/ui/EmptyState";
 import "./dashboard.css";
 
 const PERIOD_OPTIONS = [
@@ -14,61 +26,42 @@ const PERIOD_OPTIONS = [
   { value: "custom", label: "Свой период" },
 ];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const QUICK_ACTIONS = [
+  { to: "/transactions", label: "Операции", hint: "Добавить или найти" },
+  { to: "/import", label: "Импорт", hint: "CSV / XLSX" },
+  { to: "/budgets", label: "Бюджет", hint: "Лимиты месяца" },
+  { to: "/assistant", label: "Помощник", hint: "Советы и чат" },
+];
 
-function atStartOfDay(date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
+function getMonthKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
 }
 
-function getPeriodRange(periodKey) {
-  const now = new Date();
-  const end = atStartOfDay(now);
-  let start = atStartOfDay(now);
+function formatPeriodLabel(period, ranges, appliedCustomStart, appliedCustomEnd) {
+  if (!ranges) return "";
 
-  if (periodKey === "7d") {
-    start = new Date(end.getTime() - 6 * DAY_MS);
-  } else if (periodKey === "month") {
-    start = new Date(end.getFullYear(), end.getMonth(), 1);
+  const fmt = (date) =>
+    date.toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+
+  if (period === "custom" && appliedCustomStart && appliedCustomEnd) {
+    return `${fmt(ranges.start)} — ${fmt(ranges.end)}`;
   }
-
-  const durationDays = Math.max(
-    1,
-    Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1
-  );
-  const prevEnd = new Date(start.getTime() - DAY_MS);
-  const prevStart = new Date(prevEnd.getTime() - (durationDays - 1) * DAY_MS);
-
-  return { start, end, prevStart, prevEnd };
-}
-
-function getCustomPeriodRange(startDateStr, endDateStr) {
-  const start = atStartOfDay(new Date(startDateStr));
-  const end = atStartOfDay(new Date(endDateStr));
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
-
-  const durationDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
-  const prevEnd = new Date(start.getTime() - DAY_MS);
-  const prevStart = new Date(prevEnd.getTime() - (durationDays - 1) * DAY_MS);
-
-  return { start, end, prevStart, prevEnd };
-}
-
-function isWithinRange(value, start, end) {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  const atStart = atStartOfDay(date).getTime();
-  return atStart >= start.getTime() && atStart <= end.getTime();
-}
-
-function getChangePercent(current, previous) {
-  if (previous === 0) {
-    if (current === 0) return 0;
-    return 100;
+  if (period === "7d") {
+    return `${fmt(ranges.start)} — ${fmt(ranges.end)}`;
   }
-  return Math.round(((current - previous) / Math.abs(previous)) * 100);
+  if (period === "month") {
+    return ranges.start.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+  }
+  return `${fmt(ranges.start)} — ${fmt(ranges.end)}`;
+}
+
+function getBudgetStatus(item) {
+  const progress = Number(item.progress_percent || 0);
+  if (progress > 100) return "exceeded";
+  if (progress >= 80) return "warning";
+  return "ok";
 }
 
 function Dashboard() {
@@ -78,6 +71,8 @@ function Dashboard() {
 
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [budgets, setBudgets] = useState([]);
+  const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("month");
 
@@ -90,22 +85,50 @@ function Dashboard() {
     if (!userId) {
       setTransactions([]);
       setAccounts([]);
+      setBudgets([]);
+      setGoals([]);
       setLoading(false);
       return;
     }
 
+    const month = getMonthKey();
+
     try {
       setLoading(true);
-      const [transactionsData, accountsData] = await Promise.all([
-        getTransactions(),
-        getAccounts(),
-      ]);
-      setTransactions(Array.isArray(transactionsData) ? transactionsData : []);
-      setAccounts(Array.isArray(accountsData) ? accountsData : []);
+      const [transactionsResult, accountsResult, budgetsResult, goalsResult] =
+        await Promise.allSettled([
+          getTransactions(),
+          getAccounts(),
+          getBudgets(month),
+          getGoals(),
+        ]);
+
+      setTransactions(
+        transactionsResult.status === "fulfilled" && Array.isArray(transactionsResult.value)
+          ? transactionsResult.value
+          : []
+      );
+      setAccounts(
+        accountsResult.status === "fulfilled" && Array.isArray(accountsResult.value)
+          ? accountsResult.value
+          : []
+      );
+      setBudgets(
+        budgetsResult.status === "fulfilled" && Array.isArray(budgetsResult.value)
+          ? budgetsResult.value
+          : []
+      );
+      setGoals(
+        goalsResult.status === "fulfilled" && Array.isArray(goalsResult.value)
+          ? goalsResult.value
+          : []
+      );
     } catch (error) {
       console.error(error);
       setTransactions([]);
       setAccounts([]);
+      setBudgets([]);
+      setGoals([]);
     } finally {
       setLoading(false);
     }
@@ -121,12 +144,22 @@ function Dashboard() {
     return accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0);
   }, [accounts]);
 
+  const topAccounts = useMemo(() => {
+    return [...accounts]
+      .sort((a, b) => Number(b.balance || 0) - Number(a.balance || 0))
+      .slice(0, 4);
+  }, [accounts]);
+
   const ranges = useMemo(() => {
-    if (period === "custom" && appliedCustomStart && appliedCustomEnd) {
+    if (period === "custom") {
+      if (!appliedCustomStart || !appliedCustomEnd) return null;
       return getCustomPeriodRange(appliedCustomStart, appliedCustomEnd);
     }
     return getPeriodRange(period);
   }, [period, appliedCustomStart, appliedCustomEnd]);
+
+  const periodLabel = formatPeriodLabel(period, ranges, appliedCustomStart, appliedCustomEnd);
+  const changeHint = formatPreviousPeriodHint(period);
 
   const periodTransactions = useMemo(() => {
     if (!ranges) return [];
@@ -141,6 +174,14 @@ function Dashboard() {
       isWithinRange(item.date, ranges.prevStart, ranges.prevEnd)
     );
   }, [transactions, ranges]);
+
+  const sortedPeriodTransactions = useMemo(() => {
+    return [...periodTransactions].sort((a, b) => {
+      const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return (b.id || 0) - (a.id || 0);
+    });
+  }, [periodTransactions]);
 
   const income = calcIncome(periodTransactions);
   const expense = calcExpense(periodTransactions);
@@ -166,16 +207,16 @@ function Dashboard() {
   }, [periodTransactions]);
 
   const latestIncome = useMemo(() => {
-    return periodTransactions.find(
+    return sortedPeriodTransactions.find(
       (t) => t.type === "income" && !isTransferTransaction(t)
     );
-  }, [periodTransactions]);
+  }, [sortedPeriodTransactions]);
 
   const latestExpense = useMemo(() => {
-    return periodTransactions.find(
+    return sortedPeriodTransactions.find(
       (t) => t.type === "expense" && !isTransferTransaction(t)
     );
-  }, [periodTransactions]);
+  }, [sortedPeriodTransactions]);
 
   const expenseShare = useMemo(() => {
     if (!income) return 0;
@@ -188,6 +229,28 @@ function Dashboard() {
     );
   }, [periodTransactions]);
 
+  const recentTransactions = useMemo(() => {
+    return sortedPeriodTransactions
+      .filter((t) => !isTransferTransaction(t))
+      .slice(0, 5);
+  }, [sortedPeriodTransactions]);
+
+  const budgetAlerts = useMemo(() => {
+    return budgets
+      .filter((item) => getBudgetStatus(item) !== "ok")
+      .sort(
+        (a, b) => Number(b.progress_percent || 0) - Number(a.progress_percent || 0)
+      )
+      .slice(0, 3);
+  }, [budgets]);
+
+  const activeGoals = useMemo(() => {
+    return goals
+      .filter((goal) => goal.status !== "completed")
+      .sort((a, b) => Number(b.progress_percent || 0) - Number(a.progress_percent || 0))
+      .slice(0, 3);
+  }, [goals]);
+
   const handleApplyCustom = () => {
     if (customStart && customEnd) {
       setAppliedCustomStart(customStart);
@@ -195,13 +258,46 @@ function Dashboard() {
     }
   };
 
+  const showCustomHint = period === "custom" && (!appliedCustomStart || !appliedCustomEnd);
+
   return (
     <div className="dashboard-page">
-      <div className="dashboard-hero">
-        <div>
-          <p>Мониторинг доходов, расходов и финансовых тенденций</p>
-        </div>
+      <p className="page-subtitle">Мониторинг доходов, расходов и финансовых тенденций</p>
 
+      <details className="panel dashboard-guide dashboard-collapsible">
+        <summary className="dashboard-collapsible-summary">
+          <span>Как читать обзор</span>
+        </summary>
+        <ul className="dashboard-guide-list">
+          <li>
+            <strong>Итог за период</strong> — разница между доходами и расходами (без переводов между
+            счетами).
+          </li>
+          <li>
+            <strong>Общий баланс</strong> — сумма по всем счетам прямо сейчас, не зависит от выбранного
+            периода.
+          </li>
+          <li>
+            <strong>Проценты у доходов и расходов</strong> — для недели сравниваются предыдущие 7 дней;
+            для месяца — те же календарные даты прошлого месяца.
+          </li>
+          <li>
+            <strong>Бюджет и цели</strong> — быстрые напоминания; подробности в соответствующих
+            разделах.
+          </li>
+        </ul>
+      </details>
+
+      {!loading && accounts.length === 0 && (
+        <EmptyState
+          title="Начните с первого счёта"
+          description="Создайте карту или наличные — после этого появятся операции, графики и сводка."
+          actionLabel="Перейти к счетам"
+          actionTo="/accounts"
+        />
+      )}
+
+      <div className="dashboard-toolbar">
         <div className="dashboard-period">
           <label htmlFor="dashboard-period">Период</label>
           <select
@@ -228,14 +324,14 @@ function Dashboard() {
                 type="date"
                 value={customStart}
                 onChange={(e) => setCustomStart(e.target.value)}
-                placeholder="С"
+                aria-label="Дата начала"
               />
-              <span> – </span>
+              <span className="custom-range-sep">—</span>
               <input
                 type="date"
                 value={customEnd}
                 onChange={(e) => setCustomEnd(e.target.value)}
-                placeholder="По"
+                aria-label="Дата окончания"
               />
               <button
                 type="button"
@@ -247,6 +343,10 @@ function Dashboard() {
             </div>
           )}
         </div>
+
+        <p className="dashboard-period-label">
+          {showCustomHint ? "Выберите даты и нажмите «Применить»" : periodLabel}
+        </p>
       </div>
 
       <div className="stats-grid">
@@ -258,25 +358,69 @@ function Dashboard() {
         <div className="stat-card stat-income">
           <span>Доходы</span>
           <strong>{formatMoney(income, currency)}</strong>
-          <small className={incomeChange >= 0 ? "delta-positive" : "delta-negative"}>
-            {incomeChange >= 0 ? "+" : ""}
-            {incomeChange}% к прошлому периоду
-          </small>
+          {!showCustomHint && ranges && (
+            <small
+              className={
+                incomeChange === null
+                  ? "delta-neutral"
+                  : incomeChange >= 0
+                    ? "delta-positive"
+                    : "delta-negative"
+              }
+              title={incomeChange === null ? "В прошлом периоде не было доходов" : undefined}
+            >
+              {formatChangePercent(incomeChange)} {changeHint}
+            </small>
+          )}
         </div>
 
         <div className="stat-card stat-expense">
           <span>Расходы</span>
           <strong>{formatMoney(expense, currency)}</strong>
-          <small className={expenseChange <= 0 ? "delta-positive" : "delta-negative"}>
-            {expenseChange >= 0 ? "+" : ""}
-            {expenseChange}% к прошлому периоду
-          </small>
+          {!showCustomHint && ranges && (
+            <small
+              className={
+                expenseChange === null
+                  ? "delta-neutral"
+                  : expenseChange <= 0
+                    ? "delta-positive"
+                    : "delta-negative"
+              }
+              title={expenseChange === null ? "В прошлом периоде не было расходов" : undefined}
+            >
+              {formatChangePercent(expenseChange)} {changeHint}
+            </small>
+          )}
+        </div>
+
+        <div className="stat-card stat-accounts">
+          <span>Баланс счетов</span>
+          <strong>{formatMoney(accountBalance, currency)}</strong>
+          <small>{accounts.length} {accounts.length === 1 ? "счёт" : accounts.length < 5 ? "счёта" : "счетов"}</small>
         </div>
       </div>
 
-      <div className="balance-caption">
-        Текущий общий баланс счетов:{" "}
-        <strong>{formatMoney(accountBalance, currency)}</strong>
+      {topAccounts.length > 0 && (
+        <div className="dashboard-accounts-strip">
+          {topAccounts.map((account) => (
+            <Link key={account.id} to={`/transactions?account=${account.id}`} className="account-chip">
+              <span className="account-chip-name">{account.name}</span>
+              <strong>{formatMoney(account.balance, currency)}</strong>
+            </Link>
+          ))}
+          <Link to="/accounts" className="account-chip account-chip--more">
+            Все счета →
+          </Link>
+        </div>
+      )}
+
+      <div className="dashboard-quick-actions">
+        {QUICK_ACTIONS.map((action) => (
+          <Link key={action.to} to={action.to} className="dashboard-quick-action">
+            <strong>{action.label}</strong>
+            <span>{action.hint}</span>
+          </Link>
+        ))}
       </div>
 
       <div className="dashboard-layout">
@@ -288,8 +432,18 @@ function Dashboard() {
 
           {loading ? (
             <p className="empty-state">Загрузка...</p>
+          ) : showCustomHint ? (
+            <EmptyState
+              title="Выберите период"
+              description="Укажите даты «с» и «по», затем нажмите «Применить»."
+            />
           ) : expenseTransactions.length === 0 ? (
-            <p className="empty-state">Нет расходов для отображения</p>
+            <EmptyState
+              title="Нет расходов за период"
+              description="Добавьте операции или импортируйте выписку — график появится автоматически."
+              actionLabel="Импорт выписки"
+              actionTo="/import"
+            />
           ) : (
             <ExpenseChart transactions={expenseTransactions} currency={currency} />
           )}
@@ -305,10 +459,7 @@ function Dashboard() {
             <span className="insight-label">Главная категория расходов</span>
             <strong>
               {topExpenseCategory
-                ? `${topExpenseCategory.name} — ${formatMoney(
-                    topExpenseCategory.value,
-                    currency
-                  )}`
+                ? `${topExpenseCategory.name} — ${formatMoney(topExpenseCategory.value, currency)}`
                 : "Пока нет данных"}
             </strong>
           </div>
@@ -317,48 +468,119 @@ function Dashboard() {
             <span className="insight-label">Последний доход</span>
             <strong>
               {latestIncome
-                ? `${latestIncome.category} — ${formatMoney(
-                    latestIncome.amount,
-                    currency
-                  )}`
+                ? `${latestIncome.category} — ${formatMoney(latestIncome.amount, currency)}`
                 : "Нет доходов"}
             </strong>
+            {latestIncome && (
+              <span className="insight-meta">{formatDate(latestIncome.date)}</span>
+            )}
           </div>
 
           <div className="insight-card">
             <span className="insight-label">Последний расход</span>
             <strong>
               {latestExpense
-                ? `${latestExpense.category} — ${formatMoney(
-                    latestExpense.amount,
-                    currency
-                  )}`
+                ? `${latestExpense.category} — ${formatMoney(latestExpense.amount, currency)}`
                 : "Нет расходов"}
             </strong>
+            {latestExpense && (
+              <span className="insight-meta">{formatDate(latestExpense.date)}</span>
+            )}
           </div>
 
           <div className="insight-card">
-            <span className="insight-label">Соотношение расходов к доходам</span>
+            <span className="insight-label">Расходы к доходам</span>
             <strong>{income > 0 ? `${expenseShare}%` : "Недостаточно данных"}</strong>
+            {income > 0 && expenseShare > 100 && (
+              <span className="insight-meta insight-meta--warn">Расходы выше доходов</span>
+            )}
           </div>
+
+          {budgetAlerts.length > 0 && (
+            <div className="dashboard-widget">
+              <div className="dashboard-widget-head">
+                <h3>Бюджет</h3>
+                <Link to="/budgets">Открыть →</Link>
+              </div>
+              {budgetAlerts.map((item) => {
+                const status = getBudgetStatus(item);
+                return (
+                  <div key={item.id} className={`dashboard-alert dashboard-alert--${status}`}>
+                    <span>{item.category_name}</span>
+                    <strong>
+                      {formatMoney(item.spent, currency)} / {formatMoney(item.limit_amount, currency)}
+                    </strong>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {activeGoals.length > 0 && (
+            <div className="dashboard-widget">
+              <div className="dashboard-widget-head">
+                <h3>Цели</h3>
+                <Link to="/goals">Открыть →</Link>
+              </div>
+              {activeGoals.map((goal) => {
+                const progress = Math.min(Number(goal.progress_percent || 0), 100);
+                return (
+                  <div key={goal.id} className="dashboard-goal-mini">
+                    <div className="dashboard-goal-mini-top">
+                      <span>{goal.name}</span>
+                      <strong>{progress}%</strong>
+                    </div>
+                    <div className="dashboard-goal-mini-track">
+                      <div
+                        className="dashboard-goal-mini-fill"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <span className="dashboard-goal-mini-meta">
+                      {formatMoney(goal.current_amount, currency)} из{" "}
+                      {formatMoney(goal.target_amount, currency)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </aside>
       </div>
 
       <section className="panel summary-panel">
-        <div className="panel-header">
-          <h2>Краткая сводка</h2>
-          <span className="panel-subtitle">Последние изменения</span>
+        <div className="panel-header panel-header-row">
+          <div>
+            <h2>Последние операции</h2>
+            <span className="panel-subtitle">За выбранный период</span>
+          </div>
+          <Link to="/transactions" className="dashboard-link-all">
+            Все операции →
+          </Link>
         </div>
 
-        {periodTransactions.length === 0 ? (
-          <p className="empty-state">Пока нет транзакций</p>
+        {loading ? (
+          <p className="empty-state">Загрузка...</p>
+        ) : showCustomHint ? (
+          <EmptyState title="Период не выбран" description="Задайте свой диапазон дат выше." />
+        ) : recentTransactions.length === 0 ? (
+          <EmptyState
+            title="Нет операций за период"
+            description="Добавьте доход или расход, либо импортируйте выписку."
+            actionLabel="Импорт выписки"
+            actionTo="/import"
+          />
         ) : (
           <div className="summary-grid">
-            {periodTransactions.slice(0, 4).map((t) => (
+            {recentTransactions.map((t) => (
               <div key={t.id} className="summary-item">
                 <div>
                   <div className="summary-title">{t.category || "Без категории"}</div>
-                  <div className="summary-meta">{formatDate(t.date)}</div>
+                  <div className="summary-meta">
+                    {formatDate(t.date)}
+                    {t.account ? ` · ${t.account}` : ""}
+                    {t.note ? ` · ${t.note}` : ""}
+                  </div>
                 </div>
                 <div className={t.type === "income" ? "money income" : "money expense"}>
                   {t.type === "income" ? "+" : "-"}

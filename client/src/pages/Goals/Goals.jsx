@@ -13,6 +13,8 @@ import { formatDate, formatMoney } from "../../shared/lib/format";
 import { getCurrentUser } from "../../shared/lib/session";
 import { GOAL_STATUS_OPTIONS, formatGoalStatus } from "../../shared/lib/goalStatus";
 import { toast } from "../../shared/ui/ToastProvider";
+import EmptyState from "../../shared/ui/EmptyState";
+import ConfirmModal from "../../shared/ui/ConfirmModal";
 import "./goals.css";
 
 function getRecommendedContribution(goal) {
@@ -57,6 +59,9 @@ function Goals() {
   const [expandedGoalId, setExpandedGoalId] = useState(null);
   const [historyByGoal, setHistoryByGoal] = useState({});
   const [editByGoal, setEditByGoal] = useState({});
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
   const [form, setForm] = useState({
     name: "",
@@ -132,9 +137,11 @@ function Goals() {
       });
 
       await loadGoals();
+      window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      toast.success("Цель создана");
     } catch (error) {
       console.error(error);
-      toast("Не удалось создать цель");
+      toast.error("Не удалось создать цель");
     } finally {
       setSaving(false);
     }
@@ -159,24 +166,35 @@ function Goals() {
       await loadHistory(goalId);
       await loadGoals();
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      toast.success("Цель пополнена");
     } catch (error) {
       console.error(error);
-      toast("Не удалось пополнить цель");
+      toast.error("Не удалось пополнить цель");
     }
   };
 
-  const handleDelete = async (goalId) => {
-    const confirmed = window.confirm("Удалить цель?");
-    if (!confirmed) {
-      return;
-    }
+  const requestDelete = (goalId) => {
+    setPendingDeleteId(goalId);
+    setDeleteOpen(true);
+  };
+
+  const handleDelete = async () => {
+    const goalId = pendingDeleteId;
+    if (!goalId) return;
 
     try {
+      setDeleting(true);
       await deleteGoal(goalId);
       await loadGoals();
+      window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      setDeleteOpen(false);
+      setPendingDeleteId(null);
+      toast.success("Цель удалена");
     } catch (error) {
       console.error(error);
-      toast("Не удалось удалить цель");
+      toast.error("Не удалось удалить цель");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -242,19 +260,95 @@ function Goals() {
         return next;
       });
       await loadGoals();
+      window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      toast.success("Цель обновлена");
     } catch (error) {
       console.error(error);
-      toast("Не удалось обновить цель");
+      toast.error("Не удалось обновить цель");
     }
   };
 
   return (
     <div className="goals-page">
-      <div className="goals-hero">
-        <div>
-          <p>Финансовые цели с прогрессом и быстрым пополнением</p>
+      <p className="page-subtitle">Финансовые цели с прогрессом и быстрым пополнением</p>
+
+      <details className="panel goals-panel goals-guide goals-collapsible">
+        <summary className="goals-collapsible-summary">
+          <span>Цель и счёт «Сбережения» — в чём разница</span>
+        </summary>
+        <div className="goals-guide-grid">
+          <div className="goals-guide-card">
+            <h3>Счёт «Сбережения»</h3>
+            <p>
+              Это <strong>кошелёк</strong>: где физически лежат отложенные деньги. Баланс меняется
+              переводами и операциями. Перевод с карты сюда <strong>не считается расходом</strong> в
+              аналитике.
+            </p>
+            <p className="goals-guide-example">
+              Пример: «Накопительный счёт в банке» — 150 000 ₽ на балансе.
+            </p>
+          </div>
+          <div className="goals-guide-card">
+            <h3>Цель</h3>
+            <p>
+              Это <strong>план</strong>: название, сумма к дате, прогресс в процентах. Отдельного
+              банковского счёта у цели нет — это учёт «зачем копим».
+            </p>
+            <p className="goals-guide-example">
+              Пример: «Отпуск» — нужно 200 000 ₽, накоплено 45 000 ₽ (22%).
+            </p>
+          </div>
         </div>
-      </div>
+        <ul className="goals-guide-list">
+          <li>
+            <strong>Только копилка без дедлайна</strong> — достаточно счёта «Сбережения» и переводов
+            с карты.
+          </li>
+          <li>
+            <strong>Конкретная цель с датой</strong> — создайте цель; взнос со счёта спишет деньги и
+            увеличит прогресс (в аналитике — категория «Цели»).
+          </li>
+          <li>
+            <strong>Сначала перевод, потом прогресс</strong> — перевели на «Сбережения», в цели
+            нажмите «Пополнить» с пунктом «Без списания со счёта», чтобы не списать дважды.
+          </li>
+          <li>
+            <strong>Взнос с накопительного</strong> — выберите счёт «Сбережения»: баланс кошелька и
+            прогресс цели обновятся вместе.
+          </li>
+        </ul>
+      </details>
+
+      <details className="panel goals-panel goals-guide goals-collapsible">
+        <summary className="goals-collapsible-summary">
+          <span>Статусы, взносы и дедлайн</span>
+        </summary>
+        <ul className="goals-guide-list">
+          <li>
+            <strong>Активна</strong> — цель в работе, прогресс учитывается в сводке и в помощнике.
+          </li>
+          <li>
+            <strong>На паузе</strong> — отложили накопление, данные сохраняются; можно вернуть в
+            «Активна» через «Редактировать».
+          </li>
+          <li>
+            <strong>Выполнена</strong> — цель достигнута; отметьте вручную или дождитесь 100% по
+            сумме.
+          </li>
+          <li>
+            <strong>Рекомендуемый взнос</strong> — остаток до цели, поделённый на месяцы до дедлайна
+            (округление вверх). Без даты срока подсказки нет.
+          </li>
+          <li>
+            <strong>Взнос со счёта</strong> — списание с карты или сбережений; в аналитике учтётся
+            как расход (категория «Цели»), если выбран счёт.
+          </li>
+          <li>
+            <strong>Бюджет</strong> — лимиты на ежедневные траты; цели — на крупные накопления.
+            Разные инструменты, дополняют друг друга.
+          </li>
+        </ul>
+      </details>
 
       <div className="goals-stats">
         <div className="goals-stat">
@@ -306,6 +400,21 @@ function Goals() {
         </form>
       </section>
 
+      <ConfirmModal
+        open={deleteOpen}
+        title="Удалить цель?"
+        description="Цель и её история пополнений будут удалены."
+        confirmText="Удалить"
+        danger
+        loading={deleting}
+        onConfirm={handleDelete}
+        onClose={() => {
+          if (deleting) return;
+          setDeleteOpen(false);
+          setPendingDeleteId(null);
+        }}
+      />
+
       <section className="panel goals-panel">
         <div className="panel-head">
           <h2>Мои цели</h2>
@@ -315,7 +424,10 @@ function Goals() {
         {loading ? (
           <p className="empty-state">Загрузка...</p>
         ) : goals.length === 0 ? (
-          <p className="empty-state">Пока нет целей</p>
+          <EmptyState
+            title="Целей пока нет"
+            description="Создайте первую цель выше — укажите сумму и срок, чтобы отслеживать накопления."
+          />
         ) : (
           <div className="goals-list">
             {goals.map((goal) => {
@@ -323,9 +435,13 @@ function Goals() {
               const isCompleted = Number(goal.current_amount || 0) >= Number(goal.target_amount || 0);
               const recommended = getRecommendedContribution(goal);
               const editModel = editByGoal[goal.id];
+              const statusKey = goal.status || "active";
 
               return (
-                <article key={goal.id} className="goal-item">
+                <article
+                  key={goal.id}
+                  className={`goal-item goal-item--${statusKey}${isCompleted ? " goal-item--done" : ""}`}
+                >
                   <div className="goal-top">
                     <div>
                       <h3>{goal.name}</h3>
@@ -333,7 +449,7 @@ function Goals() {
                         {formatMoney(goal.current_amount, currency)} из {formatMoney(goal.target_amount, currency)}
                       </p>
                     </div>
-                    <button type="button" className="goal-delete" onClick={() => handleDelete(goal.id)}>
+                    <button type="button" className="goal-delete" onClick={() => requestDelete(goal.id)}>
                       Удалить
                     </button>
                   </div>
@@ -349,7 +465,9 @@ function Goals() {
                         ? "Цель выполнена"
                         : `Осталось: ${formatMoney(goal.remaining, currency)}`}
                     </span>
-                    <span className="goal-status-badge">{formatGoalStatus(goal.status)}</span>
+                    <span className={`goal-status-badge goal-status-badge--${statusKey}`}>
+                      {formatGoalStatus(goal.status)}
+                    </span>
                   </div>
 
                   <div className="goal-extra-meta">

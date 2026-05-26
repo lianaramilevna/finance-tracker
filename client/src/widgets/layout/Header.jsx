@@ -6,10 +6,10 @@ import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import { logoutUser } from "../../shared/api/auth";
 import { clearSession, getCurrentUser } from "../../shared/lib/session";
 import { toast } from "../../shared/ui/ToastProvider";
-import { FiUser } from "react-icons/fi"; // ← импорт иконки
+import { FiLogOut, FiMenu, FiUser } from "react-icons/fi";
 import "./header.css";
 
-function Header() {
+function Header({ isDesktop = true, onToggleSidebar }) {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -25,9 +25,13 @@ function Header() {
     "/goals": "Цели",
     "/settings": "Настройки",
     "/import": "Импорт",
+    "/assistant": "Умный помощник",
   };
 
-  const pageTitle = titles[location.pathname];
+  const pageTitle =
+    titles[location.pathname] ||
+    Object.entries(titles).find(([path]) => location.pathname.startsWith(path))?.[1] ||
+    "Balance";
 
   const handleAddTransaction = async (transaction) => {
     try {
@@ -35,7 +39,7 @@ function Header() {
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
     } catch (error) {
       console.error(error);
-      toast("Не удалось добавить транзакцию");
+      toast.error("Не удалось добавить транзакцию");
       throw error;
     }
   };
@@ -53,7 +57,20 @@ function Header() {
   return (
     <>
       <div className="header">
-        <h2 className="header-title">{pageTitle}</h2>
+        <div className="header-left">
+          {!isDesktop && (
+            <button
+              type="button"
+              className="menu-btn"
+              onClick={onToggleSidebar}
+              aria-label="Открыть меню"
+              title="Меню"
+            >
+              <FiMenu size={20} />
+            </button>
+          )}
+          <h2 className="header-title">{pageTitle}</h2>
+        </div>
 
         <div className="header-right">
           <button className="add-btn" onClick={() => setIsOpen(true)}>
@@ -63,11 +80,11 @@ function Header() {
           <div className="user-block">
             <span className="user-name">{user?.username || "User"}</span>
             <div className="avatar">
-              <FiUser size={20} /> {/* ← иконка вместо эмодзи */}
+              <FiUser size={20} />
             </div>
 
-            <button className="logout-btn" onClick={handleLogout}>
-              Выйти
+            <button className="logout-btn" onClick={handleLogout} title="Выйти">
+              <FiLogOut size={18} />
             </button>
           </div>
         </div>
@@ -83,3 +100,4 @@ function Header() {
 }
 
 export default Header;
+

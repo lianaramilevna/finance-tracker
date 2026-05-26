@@ -12,6 +12,7 @@ const budgetsRoutes = require("./routes/budgets");
 const goalsRoutes = require("./routes/goals");
 const importsRoutes = require("./routes/imports");
 const transfersRoutes = require("./routes/transfers");
+const assistantRoutes = require("./routes/assistant");
 
 const app = express();
 
@@ -44,5 +45,6 @@ app.use("/api/budgets", authenticate, budgetsRoutes);
 app.use("/api/goals", authenticate, goalsRoutes);
 app.use("/api/imports", authenticate, importsRoutes);
 app.use("/api/transfers", authenticate, transfersRoutes);
+app.use("/api/assistant", authenticate, assistantRoutes);
 
 module.exports = app;

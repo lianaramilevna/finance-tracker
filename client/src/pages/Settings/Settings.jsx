@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { FiX } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import {
   changeUserPassword,
+  clearUserData,
+  deleteUserAccount,
   getUserSettings,
   updateUserSettings,
 } from "../../shared/api/users";
 import { logoutUser } from "../../shared/api/auth";
 import { clearSession, getCurrentUser, updateCurrentUser } from "../../shared/lib/session";
+import { toast } from "../../shared/ui/ToastProvider";
+import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import "./settings.css";
 
-const CURRENCIES = ["RUB", "EUR", "USD"];
+const CLEAR_CONFIRM_PHRASE = "ОЧИСТИТЬ";
+const DELETE_CONFIRM_PHRASE = "УДАЛИТЬ";
 
 function Settings() {
   const navigate = useNavigate();
@@ -19,6 +25,12 @@ function Settings() {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [clearModalOpen, setClearModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState("");
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const [message, setMessage] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
@@ -30,7 +42,6 @@ function Settings() {
   const [profileForm, setProfileForm] = useState({
     username: "",
     email: "",
-    currency: "RUB",
   });
 
   const [passwordForm, setPasswordForm] = useState({
@@ -50,10 +61,6 @@ function Settings() {
     repeatPassword: "",
   });
 
-  const currencyLabel = useMemo(() => {
-    return CURRENCIES.includes(profileForm.currency) ? profileForm.currency : "RUB";
-  }, [profileForm.currency]);
-
   useEffect(() => {
     const loadSettings = async () => {
       if (!userId) {
@@ -69,13 +76,12 @@ function Settings() {
           ...currentUser,
           username: data.username || currentUser?.username || "",
           email: data.email || currentUser?.email || "",
-          currency: data.currency || "RUB",
+          currency: "RUB",
         };
 
         setProfileForm({
           username: nextUser.username,
           email: nextUser.email,
-          currency: nextUser.currency,
         });
 
         updateCurrentUser(nextUser);
@@ -193,14 +199,13 @@ function Settings() {
       const updated = await updateUserSettings(userId, {
         username: profileForm.username,
         email: profileForm.email,
-        currency: currencyLabel,
       });
 
       const nextUser = {
         ...currentUser,
         username: updated.username,
         email: updated.email,
-        currency: updated.currency,
+        currency: "RUB",
       };
 
       updateCurrentUser(nextUser);
@@ -208,13 +213,14 @@ function Settings() {
       setProfileForm({
         username: updated.username,
         email: updated.email,
-        currency: updated.currency,
       });
 
       setMessage("Профиль сохранён");
+      toast.success("Профиль сохранён");
     } catch (error) {
       console.error(error);
       setMessage(error.message || "Не удалось сохранить профиль");
+      toast.error(error.message || "Не удалось сохранить профиль");
     } finally {
       setSavingProfile(false);
     }
@@ -249,9 +255,11 @@ function Settings() {
       });
 
       setPasswordMessage("Пароль успешно изменён");
+      toast.success("Пароль успешно изменён");
     } catch (error) {
       console.error(error);
       setPasswordMessage(error.message || "Не удалось изменить пароль");
+      toast.error(error.message || "Не удалось изменить пароль");
     } finally {
       setSavingPassword(false);
     }
@@ -267,6 +275,79 @@ function Settings() {
     navigate("/", { replace: true });
   };
 
+  const openClearModal = () => {
+    setClearConfirmText("");
+    setClearModalOpen(true);
+  };
+
+  const closeClearModal = () => {
+    if (clearing) return;
+    setClearModalOpen(false);
+    setClearConfirmText("");
+  };
+
+  const openDeleteModal = () => {
+    setDeleteConfirmText("");
+    setDeleteModalOpen(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setDeleteModalOpen(false);
+    setDeleteConfirmText("");
+  };
+
+  const handleClearData = async () => {
+    if (!userId) return;
+    if (clearConfirmText.trim() !== CLEAR_CONFIRM_PHRASE) return;
+
+    try {
+      setClearing(true);
+      await clearUserData(userId);
+      window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
+      setClearModalOpen(false);
+      setClearConfirmText("");
+      toast.success("Данные очищены");
+      navigate("/accounts");
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Не удалось очистить данные");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!userId) return;
+    if (deleteConfirmText.trim() !== DELETE_CONFIRM_PHRASE) return;
+
+    try {
+      setDeleting(true);
+      await deleteUserAccount(userId);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Не удалось удалить аккаунт");
+      return;
+    } finally {
+      setDeleting(false);
+    }
+
+    setDeleteModalOpen(false);
+    setDeleteConfirmText("");
+
+    try {
+      await logoutUser();
+    } catch {
+      // ignore
+    }
+    clearSession();
+    toast.success("Аккаунт удалён");
+    navigate("/", { replace: true });
+  };
+
+  const clearPhraseOk = clearConfirmText.trim() === CLEAR_CONFIRM_PHRASE;
+  const deletePhraseOk = deleteConfirmText.trim() === DELETE_CONFIRM_PHRASE;
+
   if (loading) {
     return (
       <div className="settings-page">
@@ -279,17 +360,13 @@ function Settings() {
 
   return (
     <div className="settings-page">
-      <div className="settings-hero">
-        <div>
-          <p>Настройки профиля, валюты и безопасности</p>
-        </div>
-      </div>
+      <p className="page-subtitle">Настройки профиля, безопасности и данных</p>
 
       <div className="settings-grid">
         <section className="settings-card">
           <div className="settings-section-title">
             <h2>Профиль</h2>
-            <span>Имя пользователя, email и валюта</span>
+            <span>Имя пользователя и email</span>
           </div>
 
           <div className="settings-block">
@@ -322,21 +399,11 @@ function Settings() {
 
           <div className="settings-block">
             <label>Основная валюта</label>
-            <select
-              className="settings-select"
-              value={profileForm.currency}
-              onChange={(e) =>
-                setProfileForm((prev) => ({ ...prev, currency: e.target.value }))
-              }
-            >
-              {CURRENCIES.map((cur) => (
-                <option key={cur} value={cur}>
-                  {cur}
-                </option>
-              ))}
-            </select>
+            <div className="settings-select" aria-disabled="true">
+              RUB
+            </div>
             <p className="settings-hint">
-              Сейчас суммы будут отображаться в выбранной валюте.
+              В приложении используется одна валюта: рубли.
             </p>
           </div>
 
@@ -456,8 +523,123 @@ function Settings() {
           )}
         </section>
 
-    
+        <section className="settings-card settings-card-wide">
+          <div className="settings-section-title">
+            <h2>Данные</h2>
+            <span>Очистка истории и удаление аккаунта</span>
+          </div>
+
+          <div className="settings-block">
+            <p className="settings-hint">
+              «Очистить данные» удалит счета, операции, бюджеты, цели и категории, но оставит профиль.
+              «Удалить аккаунт» удалит всё полностью — потребуется ввести слово подтверждения.
+            </p>
+          </div>
+
+          <div className="settings-actions-row">
+            <button
+              className="settings-danger-btn"
+              type="button"
+              onClick={openClearModal}
+              disabled={clearing || deleting}
+            >
+              Очистить данные
+            </button>
+
+            <button
+              className="settings-danger-btn settings-danger-btn--strong"
+              type="button"
+              onClick={openDeleteModal}
+              disabled={clearing || deleting}
+            >
+              Удалить аккаунт
+            </button>
+          </div>
+        </section>
       </div>
+
+      {clearModalOpen && (
+        <div className="settings-modal-overlay" onClick={closeClearModal}>
+          <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-modal-head">
+              <h3>Очистить данные?</h3>
+              <button type="button" className="settings-modal-close" onClick={closeClearModal}>
+                <FiX size={18} />
+              </button>
+            </div>
+            <p className="settings-modal-text">
+              Будут удалены: счета, операции, бюджеты, цели и ваши категории. Профиль и вход
+              сохранятся.
+            </p>
+            <label className="settings-modal-label">
+              Введите <strong>{CLEAR_CONFIRM_PHRASE}</strong> для подтверждения
+            </label>
+            <input
+              type="text"
+              className="settings-modal-input"
+              value={clearConfirmText}
+              onChange={(e) => setClearConfirmText(e.target.value)}
+              placeholder={CLEAR_CONFIRM_PHRASE}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <div className="settings-modal-actions">
+              <button type="button" className="settings-modal-secondary" onClick={closeClearModal}>
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="settings-danger-btn"
+                onClick={handleClearData}
+                disabled={!clearPhraseOk || clearing}
+              >
+                {clearing ? "Очистка..." : "Очистить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteModalOpen && (
+        <div className="settings-modal-overlay" onClick={closeDeleteModal}>
+          <div className="settings-modal settings-modal--danger" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-modal-head">
+              <h3>Удалить аккаунт?</h3>
+              <button type="button" className="settings-modal-close" onClick={closeDeleteModal}>
+                <FiX size={18} />
+              </button>
+            </div>
+            <p className="settings-modal-text">
+              Будут удалены профиль и все финансовые данные. Это действие нельзя отменить.
+            </p>
+            <label className="settings-modal-label">
+              Введите <strong>{DELETE_CONFIRM_PHRASE}</strong> для подтверждения
+            </label>
+            <input
+              type="text"
+              className="settings-modal-input"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={DELETE_CONFIRM_PHRASE}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <div className="settings-modal-actions">
+              <button type="button" className="settings-modal-secondary" onClick={closeDeleteModal}>
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="settings-danger-btn settings-danger-btn--strong"
+                onClick={handleDeleteAccount}
+                disabled={!deletePhraseOk || deleting}
+              >
+                {deleting ? "Удаление..." : "Удалить навсегда"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

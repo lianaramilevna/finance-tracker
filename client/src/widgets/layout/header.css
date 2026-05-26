@@ -6,12 +6,23 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 30px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .header-title {
   font-size: 20px;
   font-weight: 700;
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .header-right {
@@ -28,12 +39,22 @@
   border-radius: 10px;
   cursor: pointer;
   font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.add-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(79, 70, 229, 0.22);
 }
 
 .user-block {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
 }
 
 .user-name {
@@ -53,17 +74,48 @@
 }
 
 .logout-btn {
-  border: 1px solid #e2e8f0;
-  background: white;
+  border: 1px solid transparent;
+  background: #f8fafc;
   color: #0f172a;
-  padding: 9px 14px;
-  border-radius: 10px;
+  padding: 8px 10px;
+  border-radius: 999px;
   cursor: pointer;
   font-weight: 600;
   transition: 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .logout-btn:hover {
   background: #f8fafc;
   border-color: #cbd5e1;
 }
+
+.menu-btn {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #0f172a;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.menu-btn:hover {
+  background: #f8fafc;
+}
+
+@media (max-width: 900px) {
+  .header {
+    padding: 0 16px;
+  }
+
+  .user-name {
+    display: none;
+  }
+}
+

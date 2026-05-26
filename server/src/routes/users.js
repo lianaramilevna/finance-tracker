@@ -8,7 +8,6 @@ const router = express.Router();
 router.use("/:id", requireSelfParam("id"));
 
 const SALT_ROUNDS = 12;
-const ALLOWED_CURRENCIES = ["RUB", "EUR", "USD"];
 
 function isHashedPassword(value) {
   return typeof value === "string" && value.startsWith("$2");
@@ -104,11 +103,7 @@ router.get("/:id/settings", async (req, res) => {
 router.patch("/:id/settings", async (req, res) => {
   try {
     const { id } = req.params;
-    const { username, email, currency } = req.body;
-
-    if (!currency || !ALLOWED_CURRENCIES.includes(currency)) {
-      return res.status(400).json({ message: "Invalid currency" });
-    }
+    const { username, email } = req.body;
 
     const usernameError = username ? validateUsername(username) : null;
     if (usernameError) {
@@ -144,14 +139,13 @@ router.patch("/:id/settings", async (req, res) => {
       SET
         username = COALESCE($1, username),
         email = COALESCE($2, email),
-        currency = $3
-      WHERE id = $4
+        currency = 'RUB'
+      WHERE id = $3
       RETURNING id, username, email, currency
       `,
       [
         username ? String(username).trim() : null,
         email ? String(email).trim().toLowerCase() : null,
-        currency,
         id,
       ]
     );
@@ -237,6 +231,81 @@ router.patch("/:id/password", async (req, res) => {
   } catch (error) {
     console.error("PATCH /api/users/:id/password error:", error);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.post("/:id/clear-data", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { id } = req.params;
+
+    await client.query("BEGIN");
+
+    // Delete financial history in safe FK order
+    await client.query(`DELETE FROM transactions WHERE user_id = $1`, [id]);
+    await client.query(`DELETE FROM budgets WHERE user_id = $1`, [id]);
+
+    // goal_contributions -> goals (goal_id CASCADE), but clean explicitly for clarity
+    await client.query(
+      `
+      DELETE FROM goal_contributions
+      WHERE goal_id IN (SELECT id FROM goals WHERE user_id = $1)
+      `,
+      [id]
+    );
+    await client.query(`DELETE FROM goals WHERE user_id = $1`, [id]);
+
+    await client.query(`DELETE FROM accounts WHERE user_id = $1`, [id]);
+    await client.query(`DELETE FROM categories WHERE user_id = $1`, [id]);
+
+    // Keep profile; keep single currency
+    await client.query(`UPDATE users SET currency = 'RUB' WHERE id = $1`, [id]);
+
+    await client.query("COMMIT");
+    res.json({ success: true });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("POST /api/users/:id/clear-data error:", error);
+    res.status(500).json({ message: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+router.delete("/:id", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { id } = req.params;
+
+    await client.query("BEGIN");
+
+    // ensure FK restrictions won't block deletion
+    await client.query(`DELETE FROM transactions WHERE user_id = $1`, [id]);
+
+    const deleted = await client.query(
+      `
+      DELETE FROM users
+      WHERE id = $1
+      RETURNING id
+      `,
+      [id]
+    );
+
+    if (deleted.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    await client.query("COMMIT");
+    res.json({ success: true, deletedId: Number(id) });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("DELETE /api/users/:id error:", error);
+    res.status(500).json({ message: "Server error" });
+  } finally {
+    client.release();
   }
 });
 

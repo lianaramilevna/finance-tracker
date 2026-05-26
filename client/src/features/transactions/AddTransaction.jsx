@@ -121,7 +121,7 @@ function AddTransaction({ onAdd, onCancel }) {
       setShowNewCategoryInput(false);
     } catch (error) {
       console.error(error);
-      toast(error.message || "Не удалось добавить категорию");
+      toast.error(error.message || "Не удалось добавить категорию");
     }
   };
 

@@ -105,9 +105,26 @@
 .table-head,
 .table-row {
   display: grid;
-  grid-template-columns: 130px 1.2fr 110px 120px 1.2fr 170px;
+  grid-template-columns: 44px 110px 1.1fr 1fr 90px 120px 1fr auto;
   gap: 12px;
   align-items: center;
+}
+
+.table-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.table-check input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.table-row-selected {
+  border-color: #c7d2fe;
+  background: #eef2ff;
 }
 
 .table-head {
@@ -177,13 +194,13 @@
 @media (max-width: 1100px) {
   .table-head,
   .table-row {
-    grid-template-columns: 120px 1fr 100px 110px;
+    grid-template-columns: 44px 100px 1fr 1fr 90px 110px;
   }
 
-  .table-head span:nth-child(5),
-  .table-head span:nth-child(6),
-  .table-row span:nth-child(5),
-  .table-row span:nth-child(6) {
+  .table-head span:nth-child(7),
+  .table-head span:nth-child(8),
+  .table-row span:nth-child(7),
+  .table-row span:nth-child(8) {
     display: none;
   }
 }
@@ -203,8 +220,32 @@
   }
 
   .table-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 44px 1fr;
     gap: 8px;
+  }
+
+  .table-row span:not(.table-check):not(.transaction-row-actions) {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 8px;
+  }
+
+  .table-row span:not(.table-check):not(.transaction-row-actions)::before {
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .table-row span:nth-child(2)::before { content: "Дата"; }
+  .table-row span:nth-child(3)::before { content: "Счёт"; }
+  .table-row span:nth-child(4)::before { content: "Категория"; }
+  .table-row span:nth-child(5)::before { content: "Тип"; }
+  .table-row span:nth-child(6)::before { content: "Сумма"; }
+  .table-row span:nth-child(7)::before { content: "Заметка"; }
+
+  .transaction-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
   }
 }
 
@@ -272,7 +313,61 @@
 }
 
 .toolbar-grid {
-  grid-template-columns: 1.6fr 0.8fr 0.8fr 0.8fr;
+  grid-template-columns: 1.4fr repeat(6, minmax(0, 1fr));
+}
+
+.transactions-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #3730a3;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.transactions-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.transactions-bulk-select {
+  min-width: 180px;
+  padding: 10px 12px;
+}
+
+.transactions-bulk-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+  background: #6366f1;
+  color: white;
+}
+
+.transactions-bulk-btn.ghost {
+  background: white;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.transactions-bulk-btn.danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.transactions-bulk-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 @media (max-width: 1100px) {
@@ -314,6 +409,11 @@
 
 .edit-btn:hover {
   background: #e0e7ff;
+}
+
+.edit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .delete-btn {

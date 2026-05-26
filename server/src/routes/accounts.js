@@ -1,12 +1,30 @@
 const express = require("express");
 const pool = require("../db");
+const {
+  isYieldAccountType,
+  parseAnnualRatePercent,
+  normalizeAnnualRateForType,
+} = require("../lib/accountYield");
 
 const router = express.Router();
+
+const ACCOUNT_COLUMNS = `
+  id,
+  user_id,
+  name,
+  type,
+  currency,
+  balance,
+  annual_rate_percent,
+  is_archived,
+  closed_at,
+  created_at
+`;
 
 async function getOwnedAccount(id, userId) {
   const result = await pool.query(
     `
-    SELECT id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
+    SELECT ${ACCOUNT_COLUMNS}
     FROM accounts
     WHERE id = $1
     LIMIT 1
@@ -45,16 +63,7 @@ router.get("/", async (req, res) => {
 
     const result = await pool.query(
       `
-      SELECT
-        id,
-        user_id,
-        name,
-        type,
-        currency,
-        balance,
-        is_archived,
-        closed_at,
-        created_at
+      SELECT ${ACCOUNT_COLUMNS}
       FROM accounts
       WHERE ${whereClause}
       ORDER BY created_at DESC, id DESC
@@ -71,7 +80,7 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
-    const { name, type, currency = "RUB", balance = 0 } = req.body;
+    const { name, type, balance = 0, annual_rate_percent } = req.body;
 
     if (!name || !type) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -82,13 +91,20 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Invalid account type" });
     }
 
+    const parsedRate = parseAnnualRatePercent(annual_rate_percent);
+    if (parsedRate === "invalid") {
+      return res.status(400).json({ message: "annual_rate_percent must be between 0 and 100" });
+    }
+
+    const annualRate = normalizeAnnualRateForType(type, parsedRate);
+
     const created = await pool.query(
       `
-      INSERT INTO accounts (user_id, name, type, currency, balance, is_archived)
-      VALUES ($1, $2, $3, $4, $5, false)
-      RETURNING id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
+      INSERT INTO accounts (user_id, name, type, currency, balance, annual_rate_percent, is_archived)
+      VALUES ($1, $2, $3, 'RUB', $4, $5, false)
+      RETURNING ${ACCOUNT_COLUMNS}
       `,
-      [req.userId, name.trim(), type, currency, balance]
+      [req.userId, name.trim(), type, balance, annualRate]
     );
 
     res.status(201).json(created.rows[0]);
@@ -101,7 +117,7 @@ router.post("/", async (req, res) => {
 router.patch("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, type, currency, balance } = req.body;
+    const { name, type, balance, annual_rate_percent } = req.body;
 
     const owned = await getOwnedAccount(id, req.userId);
     if (owned === "forbidden") {
@@ -116,23 +132,37 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ message: "Invalid account type" });
     }
 
+    const nextType = type ?? owned.type;
+    let nextAnnualRate = owned.annual_rate_percent ?? null;
+
+    if (annual_rate_percent !== undefined) {
+      const parsedRate = parseAnnualRatePercent(annual_rate_percent);
+      if (parsedRate === "invalid") {
+        return res.status(400).json({ message: "annual_rate_percent must be between 0 and 100" });
+      }
+      nextAnnualRate = normalizeAnnualRateForType(nextType, parsedRate);
+    } else if (type && !isYieldAccountType(nextType)) {
+      nextAnnualRate = null;
+    }
+
     const updated = await pool.query(
       `
       UPDATE accounts
       SET
         name = COALESCE($1, name),
         type = COALESCE($2, type),
-        currency = COALESCE($3, currency),
-        balance = COALESCE($4, balance)
+        currency = 'RUB',
+        balance = COALESCE($3, balance),
+        annual_rate_percent = $4
       WHERE id = $5
         AND user_id = $6
-      RETURNING id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
+      RETURNING ${ACCOUNT_COLUMNS}
       `,
       [
         name ? name.trim() : null,
         type ?? null,
-        currency ?? null,
         balance ?? null,
+        nextAnnualRate,
         id,
         req.userId,
       ]
@@ -157,7 +187,7 @@ router.patch("/:id/close", async (req, res) => {
       WHERE id = $1
         AND user_id = $2
         AND COALESCE(is_archived, false) = false
-      RETURNING id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
+      RETURNING ${ACCOUNT_COLUMNS}
       `,
       [id, req.userId]
     );
@@ -185,7 +215,7 @@ router.patch("/:id/restore", async (req, res) => {
       WHERE id = $1
         AND user_id = $2
         AND COALESCE(is_archived, false) = true
-      RETURNING id, user_id, name, type, currency, balance, is_archived, closed_at, created_at
+      RETURNING ${ACCOUNT_COLUMNS}
       `,
       [id, req.userId]
     );

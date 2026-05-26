@@ -9,9 +9,16 @@ import {
 import { createTransfer } from "../../shared/api/transfers";
 import { getCurrentUser } from "../../shared/lib/session";
 import { formatMoney } from "../../shared/lib/format";
+import {
+  estimateYieldIncome,
+  formatRatePercent,
+  getRateFieldLabel,
+  isYieldAccountType,
+} from "../../shared/lib/accountYield";
 import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import { toast } from "../../shared/ui/ToastProvider";
 import { FiEdit2, FiX } from "react-icons/fi";
+import ConfirmModal from "../../shared/ui/ConfirmModal";
 import "./accounts.css";
 
 const ACCOUNT_TYPES = [
@@ -20,6 +27,15 @@ const ACCOUNT_TYPES = [
   { value: "savings", label: "Сбережения" },
   { value: "investment", label: "Инвестиции" },
 ];
+
+const ACCOUNT_TYPE_HINTS = {
+  card: "Повседневные траты: зарплата, покупки, импорт выписки. Сюда приходят доходы и уходят расходы.",
+  cash: "Наличные в кошельке. Удобно для мелких трат без карты.",
+  savings:
+    "Вклад или накопительный счёт: переводите сюда деньги с карты. Можно указать годовую ставку — приложение покажет ориентир дохода. Фактические проценты от банка вносите операцией «Доход».",
+  investment:
+    "Брокер, ИИС, ПИФ: переводите сумму для инвестиций. Ожидаемую доходность можно указать для плана; реальные дивиденды и купоны — отдельным доходом с категорией «Инвестиции».",
+};
 
 function Accounts() {
   const user = getCurrentUser();
@@ -32,11 +48,15 @@ function Accounts() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [transferSaving, setTransferSaving] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [pendingCloseId, setPendingCloseId] = useState(null);
 
   const [form, setForm] = useState({
     name: "",
     type: "cash",
     balance: "",
+    annual_rate_percent: "",
   });
 
   const [transferForm, setTransferForm] = useState({
@@ -54,6 +74,7 @@ function Accounts() {
     name: "",
     type: "cash",
     balance: "",
+    annual_rate_percent: "",
   });
 
   const loadActiveAccounts = useCallback(async () => {
@@ -135,26 +156,33 @@ function Accounts() {
     try {
       setSaving(true);
 
-      await createAccount({
+      const payload = {
         user_id: userId,
         name: form.name.trim(),
         type: form.type,
         currency,
         balance: form.balance === "" ? 0 : Number(form.balance),
-      });
+      };
+
+      if (isYieldAccountType(form.type) && form.annual_rate_percent !== "") {
+        payload.annual_rate_percent = Number(form.annual_rate_percent);
+      }
+
+      await createAccount(payload);
 
       setForm({
         name: "",
         type: "cash",
         balance: "",
+        annual_rate_percent: "",
       });
 
       await loadAccounts();
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
-      toast("Счёт добавлен", "success");
+      toast.success("Счёт добавлен");
     } catch (error) {
       console.error(error);
-      toast(error.message || "Не удалось добавить счёт");
+      toast.error(error.message || "Не удалось добавить счёт");
     } finally {
       setSaving(false);
     }
@@ -164,7 +192,7 @@ function Accounts() {
     e.preventDefault();
 
     if (!transferForm.from_account_id || !transferForm.to_account_id) {
-      toast("Выберите счета для перевода");
+      toast.error("Выберите счета для перевода");
       return;
     }
 
@@ -187,27 +215,36 @@ function Accounts() {
 
       await loadAccounts();
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
-      toast("Перевод выполнен", "success");
+      toast.success("Перевод выполнен");
     } catch (error) {
       console.error(error);
-      toast(error.message || "Не удалось выполнить перевод");
+      toast.error(error.message || "Не удалось выполнить перевод");
     } finally {
       setTransferSaving(false);
     }
   };
 
-  const handleClose = async (id) => {
-    const confirmClose = window.confirm("Закрыть счёт? Он переместится в архив.");
-    if (!confirmClose) return;
+  const requestClose = (id) => {
+    setPendingCloseId(id);
+    setCloseOpen(true);
+  };
+
+  const handleClose = async () => {
+    if (!pendingCloseId) return;
 
     try {
-      await closeAccount(id);
+      setClosing(true);
+      await closeAccount(pendingCloseId);
       await loadAccounts();
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
-      toast("Счёт архивирован", "success");
+      setCloseOpen(false);
+      setPendingCloseId(null);
+      toast.success("Счёт архивирован");
     } catch (error) {
       console.error(error);
-      toast(error.message || "Не удалось закрыть счёт");
+      toast.error(error.message || "Не удалось закрыть счёт");
+    } finally {
+      setClosing(false);
     }
   };
 
@@ -217,10 +254,10 @@ function Accounts() {
       await loadAccounts();
       setActiveTab("active");
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
-      toast("Счёт восстановлен", "success");
+      toast.success("Счёт восстановлен");
     } catch (error) {
       console.error(error);
-      toast(error.message || "Не удалось восстановить счёт");
+      toast.error(error.message || "Не удалось восстановить счёт");
     }
   };
 
@@ -230,6 +267,10 @@ function Accounts() {
       name: account.name || "",
       type: account.type || "cash",
       balance: String(account.balance ?? 0),
+      annual_rate_percent:
+        account.annual_rate_percent != null && account.annual_rate_percent !== ""
+          ? String(account.annual_rate_percent)
+          : "",
     });
     setEditOpen(true);
   };
@@ -253,20 +294,27 @@ function Accounts() {
     try {
       setEditSaving(true);
 
-      await updateAccount(editingAccountId, {
+      const payload = {
         name: editForm.name.trim(),
         type: editForm.type,
         balance: editForm.balance === "" ? 0 : Number(editForm.balance),
         currency,
-      });
+        annual_rate_percent: isYieldAccountType(editForm.type)
+          ? editForm.annual_rate_percent === ""
+            ? null
+            : Number(editForm.annual_rate_percent)
+          : null,
+      };
+
+      await updateAccount(editingAccountId, payload);
 
       closeEdit();
       await loadAccounts();
       window.dispatchEvent(new Event(FINANCE_DATA_CHANGED));
-      toast("Изменения сохранены", "success");
+      toast.success("Изменения сохранены");
     } catch (error) {
       console.error(error);
-      toast(error.message || "Не удалось сохранить изменения");
+      toast.error(error.message || "Не удалось сохранить изменения");
     } finally {
       setEditSaving(false);
     }
@@ -276,13 +324,31 @@ function Accounts() {
     return ACCOUNT_TYPES.find((item) => item.value === type)?.label || type;
   };
 
+  const accountTypeHint = ACCOUNT_TYPE_HINTS[form.type] || "";
+  const editAccountTypeHint = ACCOUNT_TYPE_HINTS[editForm.type] || "";
+  const formRateLabel = getRateFieldLabel(form.type);
+  const editRateLabel = getRateFieldLabel(editForm.type);
+
+  const yieldSummary = useMemo(() => {
+    const yieldAccounts = accounts.filter(
+      (acc) =>
+        isYieldAccountType(acc.type) &&
+        Number(acc.annual_rate_percent || 0) > 0 &&
+        Number(acc.balance || 0) > 0
+    );
+
+    const monthly = yieldAccounts.reduce(
+      (sum, acc) =>
+        sum + estimateYieldIncome(acc.balance, acc.annual_rate_percent, "month"),
+      0
+    );
+
+    return { count: yieldAccounts.length, monthly };
+  }, [accounts]);
+
   return (
     <div className="accounts-page">
-      <div className="accounts-hero">
-        <div>
-          <p>Управление счетами, переводами и архивом</p>
-        </div>
-      </div>
+      <p className="page-subtitle">Управление счетами, переводами и архивом</p>
 
       {negativeAccounts.length > 0 && (
         <div className="accounts-warning">
@@ -307,6 +373,14 @@ function Accounts() {
           <span>В архиве</span>
           <strong>{archivedAccounts.length}</strong>
         </div>
+
+        {yieldSummary.count > 0 && (
+          <div className="accounts-stat accounts-stat-yield">
+            <span>Ориентир дохода / мес</span>
+            <strong>{formatMoney(yieldSummary.monthly, currency)}</strong>
+            <small>по ставке на {yieldSummary.count} сч.</small>
+          </div>
+        )}
       </div>
 
       {accounts.length >= 2 && (
@@ -379,6 +453,31 @@ function Accounts() {
         </section>
       )}
 
+      <details className="panel accounts-panel accounts-guide accounts-collapsible">
+        <summary className="accounts-collapsible-summary">
+          <span>Как пользоваться типами счетов</span>
+        </summary>
+        <ul className="accounts-guide-list">
+          <li>
+            <strong>Карта / наличные</strong> — деньги «в обороте»: траты, доходы, импорт выписки.
+          </li>
+          <li>
+            <strong>Сбережения / вклад</strong> — перевод с карты сюда; укажите <strong>ставку %
+            годовых</strong> для ориентира. Когда банк начислил проценты — добавьте «Доход» (категория
+            «Прочее» или «Инвестиции»).
+          </li>
+          <li>
+            <strong>Инвестиции</strong> — брокер/ИИС: перевод денег + опционально ожидаемая
+            доходность для плана. Факт: дивиденды и продажи — операции «Доход» / «Расход».
+          </li>
+          <li>
+            <strong>Цели</strong> (раздел «Цели») — не заменяют сбережения: цель = план и прогресс
+            (отпуск, 200 000 ₽), сбережения = кошелёк с балансом. Часто используют вместе: деньги
+            на счёте «Сбережения», прогресс — в цели.
+          </li>
+        </ul>
+      </details>
+
       <section className="panel accounts-panel">
         <div className="panel-head">
           <h2>Добавить счёт</h2>
@@ -394,13 +493,16 @@ function Accounts() {
             onChange={handleChange}
           />
 
-          <select name="type" value={form.type} onChange={handleChange}>
-            {ACCOUNT_TYPES.map((type) => (
-              <option key={type.value} value={type.value}>
-                {type.label}
-              </option>
-            ))}
-          </select>
+          <div className="account-type-field">
+            <select name="type" value={form.type} onChange={handleChange}>
+              {ACCOUNT_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+            {accountTypeHint && <p className="account-type-hint">{accountTypeHint}</p>}
+          </div>
 
           <input
             type="number"
@@ -411,6 +513,26 @@ function Accounts() {
             min="0"
             step="1"
           />
+
+          {formRateLabel && (
+            <div className="account-rate-field">
+              <label htmlFor="create-annual-rate">{formRateLabel}</label>
+              <input
+                id="create-annual-rate"
+                type="number"
+                name="annual_rate_percent"
+                placeholder="Необязательно, например 16"
+                value={form.annual_rate_percent}
+                onChange={handleChange}
+                min="0"
+                max="100"
+                step="0.01"
+              />
+              <p className="account-rate-note">
+                Только ориентир в интерфейсе. Баланс меняется переводами и реальными операциями.
+              </p>
+            </div>
+          )}
 
           <button className="account-add-btn" type="submit" disabled={saving}>
             {saving ? "Добавление..." : "Добавить счёт"}
@@ -454,6 +576,14 @@ function Accounts() {
             {displayedAccounts.map((acc) => {
               const isNegative = Number(acc.balance || 0) < 0;
               const isArchived = Boolean(acc.is_archived);
+              const rateLabel = formatRatePercent(acc.annual_rate_percent);
+              const showYield =
+                isYieldAccountType(acc.type) &&
+                rateLabel &&
+                Number(acc.balance || 0) > 0;
+              const monthlyYield = showYield
+                ? estimateYieldIncome(acc.balance, acc.annual_rate_percent, "month")
+                : 0;
 
               return (
                 <article
@@ -493,7 +623,7 @@ function Accounts() {
                       ) : (
                         <button
                           className="account-close-btn"
-                          onClick={() => handleClose(acc.id)}
+                          onClick={() => requestClose(acc.id)}
                           title="Закрыть счёт"
                           type="button"
                         >
@@ -507,10 +637,21 @@ function Accounts() {
                     {formatMoney(acc.balance || 0, acc.currency || currency)}
                   </div>
 
-                  <div className="account-meta">
-                    <span>Валюта</span>
-                    <strong>{acc.currency || currency}</strong>
-                  </div>
+                  {rateLabel && (
+                    <div className="account-meta">
+                      <span>
+                        {acc.type === "investment" ? "Ожид. доходность" : "Ставка"}
+                      </span>
+                      <strong>{rateLabel}</strong>
+                    </div>
+                  )}
+
+                  {showYield && (
+                    <div className="account-yield-estimate">
+                      ≈ {formatMoney(monthlyYield, acc.currency || currency)} / мес
+                      <span> при текущем балансе</span>
+                    </div>
+                  )}
 
                   {isArchived && acc.closed_at && (
                     <div className="account-meta">
@@ -561,6 +702,9 @@ function Accounts() {
                     </option>
                   ))}
                 </select>
+                {editAccountTypeHint && (
+                  <p className="account-type-hint">{editAccountTypeHint}</p>
+                )}
               </div>
 
               <div className="account-edit-field full">
@@ -573,6 +717,25 @@ function Accounts() {
                   step="1"
                 />
               </div>
+
+              {editRateLabel && (
+                <div className="account-edit-field full">
+                  <label>{editRateLabel}</label>
+                  <input
+                    type="number"
+                    name="annual_rate_percent"
+                    value={editForm.annual_rate_percent}
+                    onChange={handleEditChange}
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="Пусто — без расчёта"
+                  />
+                  <p className="account-rate-note">
+                    Фактические начисления банка или брокера вносите вручную как «Доход».
+                  </p>
+                </div>
+              )}
 
               <div className="modal-actions">
                 <button type="button" className="modal-secondary" onClick={closeEdit}>
@@ -587,6 +750,21 @@ function Accounts() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={closeOpen}
+        title="Отправить счёт в архив?"
+        description="Счёт пропадёт из активных. Операции и история останутся, счёт можно будет восстановить."
+        confirmText="В архив"
+        danger
+        loading={closing}
+        onConfirm={handleClose}
+        onClose={() => {
+          if (closing) return;
+          setCloseOpen(false);
+          setPendingCloseId(null);
+        }}
+      />
     </div>
   );
 }

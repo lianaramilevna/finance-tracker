@@ -143,6 +143,31 @@
   font-weight: 600;
 }
 
+.goal-status-badge--paused {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.goal-status-badge--completed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.goal-item--paused {
+  opacity: 0.92;
+}
+
+.goal-item--completed,
+.goal-item--done {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.goal-item--completed .goal-progress-fill,
+.goal-item--done .goal-progress-fill {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+}
+
 .goal-extra-meta {
   margin-top: 8px;
   display: flex;
@@ -208,7 +233,112 @@
   padding: 20px 0;
 }
 
+.goals-collapsible {
+  padding: 0;
+}
+
+.goals-collapsible-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+  user-select: none;
+}
+
+.goals-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.goals-collapsible-summary span {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.goals-collapsible-summary::after {
+  content: "Показать";
+  font-size: 13px;
+  font-weight: 600;
+  color: #6366f1;
+}
+
+.goals-collapsible[open] .goals-collapsible-summary {
+  padding-bottom: 12px;
+}
+
+.goals-collapsible[open] .goals-collapsible-summary::after {
+  content: "Скрыть";
+}
+
+.goals-collapsible .goals-guide-grid,
+.goals-collapsible .goals-guide-list {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.goals-collapsible .goals-guide-list {
+  padding-bottom: 20px;
+}
+
+.goals-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.goals-guide-card {
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+}
+
+.goals-guide-card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.goals-guide-card p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.goals-guide-card p:last-child {
+  margin-bottom: 0;
+}
+
+.goals-guide-example {
+  font-size: 13px !important;
+  color: #64748b !important;
+  font-style: italic;
+}
+
+.goals-guide-list {
+  margin: 0;
+  padding-left: 20px;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.goals-guide-list strong {
+  color: #0f172a;
+}
+
 @media (max-width: 900px) {
+  .goals-guide-grid {
+    grid-template-columns: 1fr;
+  }
   .goals-stats {
     grid-template-columns: 1fr;
   }

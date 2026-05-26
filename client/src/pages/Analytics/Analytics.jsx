@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   PieChart,
   Pie,
@@ -19,7 +20,10 @@ import { FINANCE_DATA_CHANGED } from "../../shared/lib/events";
 import { getCurrentUser } from "../../shared/lib/session";
 import { formatDate, formatMoney } from "../../shared/lib/format";
 import { calcExpense, calcIncome, isTransferTransaction } from "../../shared/lib/calc";
+import EmptyState from "../../shared/ui/EmptyState";
 import "./analytics.css";
+
+const ACCOUNT_FILTER_STORAGE_KEY = "analytics_account_filter";
 
 const PERIOD_OPTIONS = [
   { value: "7d", label: "7 дней" },
@@ -116,6 +120,55 @@ function getMonthLabel(monthKey) {
   return `${month}.${year.slice(2)}`;
 }
 
+function readStoredAccountFilter() {
+  try {
+    return localStorage.getItem(ACCOUNT_FILTER_STORAGE_KEY) || "all";
+  } catch {
+    return "all";
+  }
+}
+
+function filterByAccount(list, accountFilter) {
+  if (!accountFilter || accountFilter === "all") return list;
+  return list.filter((item) => String(item.account_id) === String(accountFilter));
+}
+
+function getPeriodLabel(periodKey) {
+  return PERIOD_OPTIONS.find((item) => item.value === periodKey)?.label || periodKey;
+}
+
+function mergeZeroPercentIntoOther(items, totalAmount) {
+  if (!items.length || totalAmount <= 0) return items;
+
+  const withPercent = items.map((item) => ({
+    ...item,
+    percent: Math.round((item.value / totalAmount) * 100),
+  }));
+
+  const tiny = withPercent.filter((item) => item.percent === 0 && item.name !== "Прочее");
+  if (tiny.length === 0) return withPercent;
+
+  const kept = withPercent.filter((item) => item.percent > 0 || item.name === "Прочее");
+  const tinySum = tiny.reduce((sum, item) => sum + item.value, 0);
+
+  let merged = kept;
+  if (tinySum > 0) {
+    const otherIndex = merged.findIndex((item) => item.name === "Прочее");
+    if (otherIndex >= 0) {
+      merged = merged.map((item, index) =>
+        index === otherIndex ? { ...item, value: item.value + tinySum } : item
+      );
+    } else {
+      merged = [...merged, { name: "Прочее", value: tinySum }];
+    }
+  }
+
+  return merged.map((item) => ({
+    ...item,
+    percent: Math.round((item.value / totalAmount) * 100),
+  }));
+}
+
 function aggregateTopCategories(data, totalAmount, maxCategories) {
   if (!data.length) return [];
 
@@ -134,10 +187,7 @@ function aggregateTopCategories(data, totalAmount, maxCategories) {
     }
   }
 
-  return result.map((item) => ({
-    ...item,
-    percent: totalAmount > 0 ? Math.round((item.value / totalAmount) * 100) : 0,
-  }));
+  return mergeZeroPercentIntoOther(result, totalAmount);
 }
 
 function Analytics() {
@@ -149,6 +199,7 @@ function Analytics() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("month");
+  const [accountFilter, setAccountFilter] = useState(readStoredAccountFilter);
 
   const loadData = useCallback(async () => {
     if (!userId) {
@@ -184,27 +235,86 @@ function Analytics() {
     return () => window.removeEventListener(FINANCE_DATA_CHANGED, loadData);
   }, [loadData]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACCOUNT_FILTER_STORAGE_KEY, accountFilter);
+    } catch {
+      // ignore storage errors
+    }
+  }, [accountFilter]);
+
+  useEffect(() => {
+    if (accountFilter === "all" || accounts.length === 0) return;
+    const exists = accounts.some((item) => String(item.id) === String(accountFilter));
+    if (!exists) setAccountFilter("all");
+  }, [accounts, accountFilter]);
+
+  const selectedAccount = useMemo(() => {
+    if (accountFilter === "all") return null;
+    return accounts.find((item) => String(item.id) === String(accountFilter)) || null;
+  }, [accounts, accountFilter]);
+
+  const accountFilteredTransactions = useMemo(
+    () => filterByAccount(transactions, accountFilter),
+    [transactions, accountFilter]
+  );
+
   const ranges = useMemo(() => getPeriodRange(period), [period]);
 
   const periodTransactions = useMemo(() => {
-    if (period === "all") return transactions;
-    return transactions.filter((item) =>
+    if (period === "all") return accountFilteredTransactions;
+    return accountFilteredTransactions.filter((item) =>
       isWithinRange(item.date, ranges.start, ranges.end)
     );
-  }, [transactions, period, ranges]);
+  }, [accountFilteredTransactions, period, ranges]);
 
   const previousPeriodTransactions = useMemo(() => {
     if (period === "all") return [];
-    return transactions.filter((item) =>
+    return accountFilteredTransactions.filter((item) =>
       isWithinRange(item.date, ranges.prevStart, ranges.prevEnd)
     );
-  }, [transactions, period, ranges]);
+  }, [accountFilteredTransactions, period, ranges]);
+
+  const periodDays = useMemo(() => {
+    if (period === "all" || !ranges?.start || !ranges?.end) return null;
+    return Math.max(
+      1,
+      Math.floor((ranges.end.getTime() - ranges.start.getTime()) / DAY_MS) + 1
+    );
+  }, [period, ranges]);
+
+  const periodOpsCount = useMemo(
+    () => periodTransactions.filter((item) => !isTransferTransaction(item)).length,
+    [periodTransactions]
+  );
+
+  const hasPeriodData = periodOpsCount > 0;
 
   const income = useMemo(() => calcIncome(periodTransactions), [periodTransactions]);
 
   const expense = useMemo(() => calcExpense(periodTransactions), [periodTransactions]);
 
   const net = income - expense;
+
+  const monthExpenseForecast = useMemo(() => {
+    if (period !== "month") return null;
+    if (!ranges?.start || !ranges?.end) return null;
+
+    const now = ranges.end;
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysPassed = Math.min(daysInMonth, Math.max(1, now.getDate()));
+
+    const projected = Math.round((expense / daysPassed) * daysInMonth);
+
+    return {
+      daysPassed,
+      daysInMonth,
+      projectedExpense: projected,
+      projectedDelta: projected - expense,
+    };
+  }, [period, ranges, expense]);
 
   const prevIncome = useMemo(
     () => calcIncome(previousPeriodTransactions),
@@ -227,17 +337,27 @@ function Analytics() {
     return Math.max(Math.round((net / income) * 100), 0);
   }, [net, income]);
 
-  const activeAccountsCount = accounts.length;
+  const visibleAccounts = useMemo(() => {
+    if (!selectedAccount) return accounts;
+    return accounts.filter((item) => String(item.id) === String(selectedAccount.id));
+  }, [accounts, selectedAccount]);
+
+  const activeAccountsCount = visibleAccounts.length;
 
   const totalAccountBalance = useMemo(
-    () => accounts.reduce((sum, acc) => sum + Number(acc.balance || 0), 0),
-    [accounts]
+    () => visibleAccounts.reduce((sum, acc) => sum + Number(acc.balance || 0), 0),
+    [visibleAccounts]
   );
 
   const negativeAccounts = useMemo(
-    () => accounts.filter((acc) => Number(acc.balance || 0) < 0),
-    [accounts]
+    () => visibleAccounts.filter((acc) => Number(acc.balance || 0) < 0),
+    [visibleAccounts]
   );
+
+  const avgDailyExpense = useMemo(() => {
+    if (!periodDays || expense <= 0) return null;
+    return Math.round(expense / periodDays);
+  }, [periodDays, expense]);
 
   const topExpenseCategory = useMemo(() => {
     const map = new Map();
@@ -332,7 +452,7 @@ function Analytics() {
 
     const lookup = new Map(months.map((item) => [item.key, item]));
 
-    transactions.forEach((t) => {
+    accountFilteredTransactions.forEach((t) => {
       if (isTransferTransaction(t)) return;
 
       const key = getMonthKey(t.date);
@@ -350,7 +470,19 @@ function Analytics() {
       ...item,
       net: item.income - item.expense,
     }));
-  }, [transactions]);
+  }, [accountFilteredTransactions]);
+
+  const accountScopeLabel = selectedAccount ? selectedAccount.name : "Все счета";
+
+  const transactionsLink =
+    accountFilter !== "all" ? `/transactions?account=${accountFilter}` : "/transactions";
+
+  const resetFilters = () => {
+    setAccountFilter("all");
+    setPeriod("month");
+  };
+
+  const hasActiveFilters = accountFilter !== "all" || period !== "month";
 
   const biggestExpense = useMemo(() => {
     return (
@@ -393,29 +525,67 @@ function Analytics() {
 
   return (
     <div className="analytics-page">
-      <div className="analytics-hero">
-        <div>
-          <p>
-            Сначала общий результат, потом структура доходов и расходов,
-            затем динамика по месяцам и состояние счетов.
-          </p>
-        </div>
+      <p className="page-subtitle">
+        Сначала общий результат, потом структура доходов и расходов, затем динамика по месяцам и состояние счетов.
+      </p>
 
-        <div className="analytics-period">
-          <label htmlFor="analytics-period">Период</label>
-          <select
-            id="analytics-period"
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-          >
-            {PERIOD_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="analytics-filters">
+          <div className="analytics-filter">
+            <label htmlFor="analytics-period">Период</label>
+            <select
+              id="analytics-period"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+            >
+              {PERIOD_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="analytics-filter">
+            <label htmlFor="analytics-account">Счёт</label>
+            <select
+              id="analytics-account"
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+              disabled={loading || accounts.length === 0}
+            >
+              <option value="all">Все счета</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={String(account.id)}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </div>
       </div>
+
+      {hasActiveFilters && (
+        <div className="analytics-active-filters">
+          <span>
+            {accountScopeLabel} · {getPeriodLabel(period)}
+          </span>
+          <button type="button" className="analytics-reset-btn" onClick={resetFilters}>
+            Сбросить фильтры
+          </button>
+        </div>
+      )}
+
+      {!loading && !hasPeriodData && (
+        <EmptyState
+          title="Нет данных за выбранные фильтры"
+          description={
+            selectedAccount
+              ? `На счёте «${selectedAccount.name}» за период «${getPeriodLabel(period)}» нет операций (кроме переводов). Смените период или счёт.`
+              : `За период «${getPeriodLabel(period)}» нет операций. Добавьте транзакции или импортируйте выписку.`
+          }
+          actionLabel="Перейти к операциям"
+          actionTo={transactionsLink}
+        />
+      )}
 
       <div className="analytics-stats">
         <div className="analytics-stat">
@@ -464,6 +634,32 @@ function Analytics() {
           </small>
         </div>
 
+        {monthExpenseForecast && (
+          <div className="analytics-stat">
+            <span>Прогноз расходов (месяц)</span>
+            <strong>{formatMoney(monthExpenseForecast.projectedExpense, currency)}</strong>
+            <small>
+              На основе {monthExpenseForecast.daysPassed} из {monthExpenseForecast.daysInMonth} дней:{" "}
+              {monthExpenseForecast.projectedDelta >= 0 ? "+" : ""}
+              {formatMoney(monthExpenseForecast.projectedDelta, currency)} к текущим расходам
+            </small>
+          </div>
+        )}
+
+        <div className="analytics-stat">
+          <span>Операций за период</span>
+          <strong>{periodOpsCount}</strong>
+          <small>Без учёта переводов между счетами</small>
+        </div>
+
+        {avgDailyExpense != null && (
+          <div className="analytics-stat">
+            <span>Средний расход в день</span>
+            <strong>{formatMoney(avgDailyExpense, currency)}</strong>
+            <small>За {periodDays} дн. выбранного периода</small>
+          </div>
+        )}
+
         <div className="analytics-stat">
           <span>Сбережение</span>
           <strong>{savingsRate}%</strong>
@@ -471,19 +667,23 @@ function Analytics() {
         </div>
 
         <div className="analytics-stat">
-          <span>Активные счета</span>
-          <strong>{activeAccountsCount}</strong>
+          <span>{selectedAccount ? "Счёт" : "Активные счета"}</span>
+          <strong>{selectedAccount ? selectedAccount.name : activeAccountsCount}</strong>
           <small>
             {negativeAccounts.length > 0
               ? `${negativeAccounts.length} в минусе`
+              : selectedAccount
+              ? selectedAccount.type || "—"
               : "Нет отрицательных счетов"}
           </small>
         </div>
 
         <div className="analytics-stat">
-          <span>Баланс счетов</span>
+          <span>{selectedAccount ? "Баланс счёта" : "Баланс счетов"}</span>
           <strong>{formatMoney(totalAccountBalance, currency)}</strong>
-          <small>Сумма всех активных счетов</small>
+          <small>
+            {selectedAccount ? accountScopeLabel : "Сумма всех активных счетов"}
+          </small>
         </div>
       </div>
 
@@ -498,7 +698,9 @@ function Analytics() {
         <section className="panel analytics-panel">
           <div className="panel-head">
             <h2>Куда уходят деньги</h2>
-            <span>Расходы по категориям</span>
+            <span>
+              {accountScopeLabel} · расходы по категориям
+            </span>
           </div>
 
           {loading ? (
@@ -558,7 +760,9 @@ function Analytics() {
         <section className="panel analytics-panel">
           <div className="panel-head">
             <h2>Откуда приходят деньги</h2>
-            <span>Доходы по категориям</span>
+            <span>
+              {accountScopeLabel} · доходы по категориям
+            </span>
           </div>
 
           {loading ? (
@@ -618,7 +822,9 @@ function Analytics() {
         <section className="panel analytics-panel analytics-wide">
           <div className="panel-head">
             <h2>Динамика по месяцам</h2>
-            <span>Доходы, расходы и итог за 6 месяцев</span>
+            <span>
+              {accountScopeLabel} · доходы, расходы и итог за 6 месяцев
+            </span>
           </div>
 
           <div className="analytics-trend">
@@ -652,11 +858,11 @@ function Analytics() {
             <span>Сначала самые крупные</span>
           </div>
 
-          {accounts.length === 0 ? (
+          {visibleAccounts.length === 0 ? (
             <p className="empty-state">Пока нет счетов</p>
           ) : (
             <div className="analytics-list">
-              {[...accounts]
+              {[...visibleAccounts]
                 .sort((a, b) => Number(b.balance || 0) - Number(a.balance || 0))
                 .map((account) => (
                   <div key={account.id} className="analytics-list-item">
@@ -721,7 +927,9 @@ function Analytics() {
         <section className="panel analytics-panel analytics-wide">
           <div className="panel-head">
             <h2>Последние операции</h2>
-            <span>Последние записи по выбранному периоду</span>
+            <span>
+              {accountScopeLabel} · последние записи за период
+            </span>
           </div>
 
           {latestTransactions.length === 0 ? (
@@ -741,6 +949,12 @@ function Analytics() {
               ))}
             </div>
           )}
+
+          <div className="analytics-section-footer">
+            <Link to={transactionsLink} className="analytics-link-btn">
+              Все операции{selectedAccount ? ` — ${selectedAccount.name}` : ""}
+            </Link>
+          </div>
         </section>
 
         <section className="panel analytics-panel analytics-wide">
